@@ -1,0 +1,7 @@
+torch
+transformers
+whisper
+yt-dlp
+streamlit
+librosa
+sentencepiece
