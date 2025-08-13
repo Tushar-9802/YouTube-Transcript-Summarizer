@@ -1,7 +1,13 @@
-torch
-transformers
-whisper
-yt-dlp
-streamlit
-librosa
-sentencepiece
+# Core
+torch==2.8.0
+transformers==4.55.2
+
+# ASR + media
+openai-whisper==1.1.10
+yt-dlp==2025.8.11
+librosa==0.11.0
+
+# App + utils
+streamlit==1.48.1
+sentencepiece==0.2.1
+PyYAML==6.0.2

@@ -1,0 +1,11 @@
+paths:
+  audio_dir: data/audio
+  transcript_dir: data/transcripts
+  outputs_dir: outputs
+  adapters_dir: models/adapters
+
+whisper:
+  model_size: base   # tiny|base|small|medium|large
+
+logging:
+  level: INFO        # DEBUG|INFO|WARNING|ERROR|CRITICAL
