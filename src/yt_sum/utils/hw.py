@@ -1,122 +1,176 @@
 # src/yt_sum/utils/hw.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, Dict, Any
-import torch
+from typing import Dict, Any, Optional
+import math
 
+# -------- Device detection --------
 @dataclass
 class DeviceInfo:
     cuda: bool
     name: str
     total_gb: float
     free_gb: float
-    torch_cuda: Optional[str]
 
-def _mem_gb(bytes_val: int) -> float:
-    return float(bytes_val) / (1024 ** 3)
+def _bytes_to_gb(b: int) -> float:
+    return round(b / (1024**3), 2)
 
 def get_device_info() -> DeviceInfo:
-    if torch.cuda.is_available():
-        try:
-            total_free = torch.cuda.mem_get_info()
-            free_gb = _mem_gb(total_free[0])
-            total_gb = _mem_gb(total_free[1])
-        except Exception:
-            props = torch.cuda.get_device_properties(0)
-            total_gb = _mem_gb(props.total_memory)
-            free_gb = max(0.0, total_gb - _mem_gb(torch.cuda.memory_allocated(0)))
-        return DeviceInfo(
-            cuda=True,
-            name=torch.cuda.get_device_name(0),
-            total_gb=round(total_gb, 2),
-            free_gb=round(free_gb, 2),
-            torch_cuda=torch.version.cuda,
-        )
-    return DeviceInfo(cuda=False, name="CPU", total_gb=0.0, free_gb=0.0, torch_cuda=None)
-
-def auto_asr_choice(duration_s: Optional[int], language: Optional[str], prefer_accuracy: bool = True) -> Dict[str, Any]:
     """
-    Heuristic picker for Faster‑Whisper size + compute_type (or Whisper size if fallback).
-    Uses FREE VRAM (not just total) so it plays nice with other apps.
+    Returns a best-effort snapshot of CUDA availability, device name, and free/total VRAM.
+    Falls back gracefully on CPU or when NVML isn't available.
     """
-    dev = get_device_info()
-    long_audio = (duration_s or 0) >= 20 * 60  # >=20 min
+    name = "CPU"
+    total_gb = 0.0
+    free_gb = 0.0
+    cuda = False
 
-    # Default targets
-    choice = {
-        "backend": "faster",             # "faster" or "whisper"
-        "model_size": "small",           # tiny/base/small/medium/large-v3
-        "compute_type": "int8_float16",  # float16 on good GPUs; int8/… for low VRAM
-        "language": language,            # e.g., "en", "hi"; None = autodetect
-    }
+    try:
+        import torch
+        cuda = torch.cuda.is_available()
+        if cuda:
+            i = 0
+            name = torch.cuda.get_device_name(i)
+            # Try torch mem API first
+            try:
+                free_b, total_b = torch.cuda.mem_get_info()
+                free_gb = _bytes_to_gb(free_b)
+                total_gb = _bytes_to_gb(total_b)
+            except Exception:
+                # Try NVML for more accurate numbers if available
+                try:
+                    import pynvml
+                    pynvml.nvmlInit()
+                    h = pynvml.nvmlDeviceGetHandleByIndex(i)
+                    mem = pynvml.nvmlDeviceGetMemoryInfo(h)
+                    total_gb = _bytes_to_gb(mem.total)
+                    free_gb = _bytes_to_gb(mem.free)
+                except Exception:
+                    # As a last resort, estimate by torch + heuristic
+                    total_gb = 0.0
+                    free_gb = 0.0
+        else:
+            name = "CPU"
+    except Exception:
+        # torch not available or other error → CPU
+        pass
 
-    if not dev.cuda:
-        # CPU path
-        choice.update({"backend": "whisper", "model_size": "base", "compute_type": "int8"})
-        return choice
+    return DeviceInfo(cuda=cuda, name=name, total_gb=total_gb, free_gb=free_gb)
 
-    # CUDA path: pick by free VRAM + length + accuracy preference
-    free = dev.free_gb
-    if free >= 12.0:
-        # Plenty of VRAM
-        choice["model_size"] = "large-v3" if prefer_accuracy and not long_audio else "medium"
-        choice["compute_type"] = "float16"
-    elif free >= 8.0:
-        choice["model_size"] = "medium" if prefer_accuracy or long_audio else "small"
-        choice["compute_type"] = "float16"
-    elif free >= 6.0:
-        choice["model_size"] = "small"
-        choice["compute_type"] = "float16"
-    else:
-        choice["model_size"] = "base"
-        choice["compute_type"] = "int8_float16"
-
-    return choice
-
-def estimate_token_count(text: str, language: Optional[str]) -> int:
-    # crude but fast: English ~4 chars/token; Indic scripts ~2 chars/token
-    if not text:
-        return 0
-    per_token = 4 if (language in (None, "en")) else 2
-    return max(1, len(text) // per_token)
-
-def auto_summarizer_params(text: str, language: Optional[str]) -> Dict[str, Any]:
+# -------- ASR auto-choice --------
+def auto_asr_choice(duration_sec: Optional[int], language: Optional[str], prefer_accuracy: bool) -> Dict[str, Any]:
     """
-    Decide chunking/length/beam settings from transcript length and GPU VRAM.
+    Heuristics for Faster-Whisper size & compute type.
+    - prefer_accuracy=True: bias toward larger models
+    - duration-aware: longer videos get bigger models (if GPU)
     """
     dev = get_device_info()
-    toks = estimate_token_count(text, language)
-    long_doc = toks > 3000
-    very_long = toks > 8000
+    dur = duration_sec or 0
 
-    # VRAM‑aware chunk size
-    if dev.cuda and dev.free_gb >= 8.0:
-        chunk_tokens = 1000 if long_doc else 800
-    elif dev.cuda and dev.free_gb >= 6.0:
-        chunk_tokens = 800 if long_doc else 700
+    # Default compute type
+    if dev.cuda:
+        # If free VRAM is tight, prefer mixed int8_float16; else float16 for max speed
+        compute_type = "int8_float16" if dev.free_gb and dev.free_gb < 3.5 else "float16"
     else:
-        chunk_tokens = 600 if long_doc else 500
+        compute_type = "int8"  # CPU path
 
-    chunk_overlap = 120 if long_doc else 80
-
-    # Length targets (more detail for long docs)
-    per_chunk_max = 160 if long_doc else 120
-    per_chunk_min = 60 if long_doc else 40
-    fuse_max = 320 if very_long else (240 if long_doc else 200)
-    fuse_min = 120 if long_doc else 80
-
-    # Beams (trade accuracy for speed)
-    if dev.cuda and dev.free_gb >= 8.0:
-        beams = 5
+    # Duration buckets (tune as you like)
+    if prefer_accuracy:
+        if dur <= 15 * 60:
+            size = "small" if dev.cuda else "base"
+        elif dur <= 45 * 60:
+            size = "small" if not dev.cuda else "medium"
+        elif dur <= 120 * 60:
+            size = "medium" if dev.cuda else "small"
+        else:
+            size = "large-v3" if dev.cuda else "medium"
     else:
-        beams = 3
+        if dur <= 15 * 60:
+            size = "tiny"
+        elif dur <= 45 * 60:
+            size = "base"
+        elif dur <= 120 * 60:
+            size = "small" if dev.cuda else "base"
+        else:
+            size = "small" if dev.cuda else "base"
 
     return {
-        "chunk_tokens": chunk_tokens,
-        "chunk_overlap": chunk_overlap,
-        "per_chunk_max": per_chunk_max,
-        "per_chunk_min": per_chunk_min,
-        "fuse_max": fuse_max,
-        "fuse_min": fuse_min,
-        "num_beams": beams,
+        "backend": "faster",
+        "model_size": size,
+        "compute_type": compute_type,
+        "language": language,  # None → autodetect
+    }
+
+# -------- Summarizer auto-params --------
+def _estimate_tokens_from_text(txt: str) -> int:
+    """
+    Rough BPE token estimate from words.
+    Empirical ~1.3–1.4x for English transcripts; good enough to size budgets.
+    """
+    words = len((txt or "").split())
+    return int(words * 1.33)
+
+def auto_summarizer_params(transcript_text: str, language: Optional[str]) -> Dict[str, int]:
+    """
+    Returns legacy-style knobs used by older pipeline paths:
+      - chunk_tokens, chunk_overlap
+      - num_beams
+      - per_chunk_max/min
+      - fuse_max/min
+    Newer code uses ratio-based GenParams, but we keep this for compatibility & metadata.
+    """
+    dev = get_device_info()
+    toks = _estimate_tokens_from_text(transcript_text)
+
+    # Choose a base chunk size under 1024 encoder limit
+    if not dev.cuda:
+        chunk_tokens = 640  # CPU safer
+    else:
+        # If VRAM is tight, give more headroom
+        if dev.free_gb and dev.free_gb < 3.5:
+            chunk_tokens = 720
+        else:
+            chunk_tokens = 900
+
+    # Overlap: more for smaller chunks/CPU to keep continuity
+    if chunk_tokens <= 720:
+        chunk_overlap = 160
+    else:
+        chunk_overlap = 120
+
+    # Beams: CPU lower; GPU higher
+    num_beams = 3 if not dev.cuda else (6 if (dev.free_gb and dev.free_gb >= 8.0) else 5)
+
+    # Per-chunk length ratio heuristic (slightly shorter for very long talks)
+    if toks < 1500:
+        ratio = 0.22
+    elif toks < 6000:
+        ratio = 0.18
+    else:
+        ratio = 0.15
+
+    # Translate ratio → absolute budgets for legacy path
+    per_chunk_target = max(120, int(chunk_tokens * ratio))
+    per_chunk_max = min(512, max(180, int(per_chunk_target * 1.1)))
+    per_chunk_min = max(80, min(per_chunk_max - 80, int(per_chunk_target * 0.7)))
+
+    # Final fuse target scales with total length
+    if toks < 1500:
+        fuse_max = 280
+    elif toks < 6000:
+        fuse_max = 340
+    elif toks < 12000:
+        fuse_max = 380
+    else:
+        fuse_max = 420
+    fuse_min = max(140, fuse_max - 120)
+
+    return {
+        "chunk_tokens": int(chunk_tokens),
+        "chunk_overlap": int(chunk_overlap),
+        "num_beams": int(num_beams),
+        "per_chunk_max": int(per_chunk_max),
+        "per_chunk_min": int(per_chunk_min),
+        "fuse_max": int(fuse_max),
+        "fuse_min": int(fuse_min),
     }

@@ -1,59 +1,31 @@
-# === Python bytecode and cache ===
+# Python
 __pycache__/
 *.py[cod]
-*.so
-*.egg-info/
+*.ipynb_checkpoints
 
-# === Virtual environments ===
-yt_summariser_venv/
-venv/
+# Envs & IDE
 .venv/
-.env/
+venv/
 .env
-
-# === Jupyter Notebook checkpoints ===
-.ipynb_checkpoints/
-
-# === System and OS files ===
-.DS_Store
-Thumbs.db
-ehthumbs.db
-desktop.ini
-
-# === Audio/video downloads ===
-*.mp3
-*.m4a
-*.wav
-*.mp4
-*.mkv
-
-# === Transcripts, summaries, data ===
-/data/
-!data/.gitkeep
-/transcripts/
-/summaries/
-/outputs/
-*.pdf
-
-# === Model weights and large files ===
-*.h5
-*.pt
-*.bin
-*.ckpt
-/models/
-!models/.gitkeep
-/checkpoints/
-
-# === Hugging Face / PyTorch / pip cache ===
-hf_cache/
-torch_cache/
-pip-wheel-metadata/
-
-# === IDE/editor configs ===
-.vscode/
 .idea/
+.vscode/
+.DS_Store
 
-# === Logs ===
-*.log
-/logs/
-/log/
+# App/runtime
+data/audio/
+data/transcripts/
+outputs/
+outputs/runs/
+.streamlit/
+
+# Caches & models
+cache/
+.hf_cache/
+hub/
+.whisper/
+*.bin
+*.pt
+*.safetensors
+
+# OS / misc
+Thumbs.db

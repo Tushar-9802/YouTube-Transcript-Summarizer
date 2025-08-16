@@ -7,7 +7,7 @@ from yt_sum.utils.config import Config
 from yt_sum.utils.downloader import download_audio
 from yt_sum.utils.hw import get_device_info, auto_asr_choice, auto_summarizer_params
 from yt_sum.utils.asr import transcribe_audio as whisper_transcribe
-from yt_sum.models.summarizer import BaselineSummarizer
+from yt_sum.models.summarizer import BaselineSummarizer, GenParams  # <-- NEW
 
 ProgressFn = Callable[[str, int, Dict[str, Any]], None]  # stage, percent, extra
 
@@ -17,11 +17,17 @@ def run_pipeline(
     whisper_size: Optional[str] = None,              # if None -> auto
     summarizer_model: str = "facebook/bart-large-cnn",
     chunked: bool = True,
-    max_new_tokens: Optional[int] = None,            # if None -> auto
+
+    # ---- Legacy knobs (still supported for backward-compat) ----
+    max_new_tokens: Optional[int] = None,
     min_new_tokens: Optional[int] = None,
     num_beams: Optional[int] = None,
     chunk_tokens: Optional[int] = None,
     chunk_overlap: Optional[int] = None,
+
+    # ---- New summarizer params (preferred) ----
+    summarizer_params: Optional[Dict[str, Any]] = None,
+
     language: Optional[str] = None,                  # force language; None = autodetect
     prefer_accuracy: bool = True,                    # auto selector hint
     progress: Optional[ProgressFn] = None,
@@ -31,7 +37,7 @@ def run_pipeline(
       meta_out: dict with video/meta + selections + paths
       results:  dict with transcript + summary
     """
-    extra = {}
+    extra: Dict[str, Any] = {}
     def p(stage: str, pct: int):
         if progress:
             progress(stage, max(0, min(100, pct)), extra)
@@ -70,10 +76,14 @@ def run_pipeline(
                 )
             except Exception as e:
                 # fallback to whisper if faster-whisper not installed or failed
-                result = whisper_transcribe(audio_path, asr_choice["model_size"], cfg.transcript_dir, language=asr_choice["language"])
+                result = whisper_transcribe(
+                    audio_path, asr_choice["model_size"], cfg.transcript_dir, language=asr_choice["language"]
+                )
                 result["note"] = f"faster-whisper failed, fell back to openai-whisper: {e}"
         else:
-            result = whisper_transcribe(audio_path, asr_choice["model_size"], cfg.transcript_dir, language=asr_choice["language"])
+            result = whisper_transcribe(
+                audio_path, asr_choice["model_size"], cfg.transcript_dir, language=asr_choice["language"]
+            )
     except Exception as e:
         raise RuntimeError(f"ASR failed: {e}")
     p("transcribe", 100)
@@ -82,8 +92,12 @@ def run_pipeline(
     if not transcript_text:
         raise RuntimeError("Empty transcript.")
 
-    # Summarization params
+    # ----------------------------
+    # Build summarization settings
+    # ----------------------------
+    # Auto defaults (used if user didn't provide new params)
     auto_sum = auto_summarizer_params(transcript_text, result.get("language"))
+    # Legacy -> defaults (still computed for compatibility/metadata)
     if chunk_tokens is None:      chunk_tokens = auto_sum["chunk_tokens"]
     if chunk_overlap is None:     chunk_overlap = auto_sum["chunk_overlap"]
     if num_beams is None:         num_beams = auto_sum["num_beams"]
@@ -92,41 +106,78 @@ def run_pipeline(
     fuse_max = auto_sum["fuse_max"]
     fuse_min = auto_sum["fuse_min"]
 
+    # New-style params from UI (preferred)
+    sp = summarizer_params or {}
+    # Efficiency: default to 8-bit on CUDA unless explicitly disabled
+    use_8bit = bool(sp.get("use_8bit", dev.cuda))
+
+    # Compose GenParams (ratio-based budgets). We keep sensible fallbacks.
+    gen_params = GenParams(
+        summary_ratio=float(sp.get("summary_ratio", 0.18)),
+        reduce_target_tokens=int(sp.get("reduce_target_tokens", fuse_max)),
+        num_beams=int(sp.get("num_beams", num_beams or 5)),
+        length_penalty=float(sp.get("length_penalty", 0.9)),
+        repetition_penalty=float(sp.get("repetition_penalty", 1.08)),
+        no_repeat_ngram_size=int(sp.get("no_repeat_ngram_size", 3)),
+        do_sample=bool(sp.get("do_sample", False)),
+        temperature=float(sp.get("temperature", 1.0)),
+        chunk_tokens=int(sp.get("chunk_tokens", chunk_tokens or 900)),
+        chunk_overlap=int(sp.get("chunk_overlap", chunk_overlap or 120)),
+        guidance=(sp.get("guidance") or None),
+    )
+
+    # Record selections (old + new) for the UI
     extra["summarizer"] = {
         "model": summarizer_model,
         "chunked": chunked,
-        "chunk_tokens": chunk_tokens,
-        "chunk_overlap": chunk_overlap,
-        "num_beams": num_beams,
-        "per_chunk_max": max_new_tokens,
-        "per_chunk_min": min_new_tokens,
-        "fuse_max": fuse_max,
-        "fuse_min": fuse_min,
+        # legacy/autos (for reference)
+        "legacy": {
+            "chunk_tokens_auto": chunk_tokens,
+            "chunk_overlap_auto": chunk_overlap,
+            "num_beams_auto": num_beams,
+            "per_chunk_max_auto": max_new_tokens,
+            "per_chunk_min_auto": min_new_tokens,
+            "fuse_max_auto": fuse_max,
+            "fuse_min_auto": fuse_min,
+        },
+        # new/active
+        "active": {
+            "reduce_target_tokens": gen_params.reduce_target_tokens,
+            "summary_ratio": gen_params.summary_ratio,
+            "num_beams": gen_params.num_beams,
+            "chunk_tokens": gen_params.chunk_tokens,
+            "chunk_overlap": gen_params.chunk_overlap,
+            "no_repeat_ngram_size": gen_params.no_repeat_ngram_size,
+            "length_penalty": gen_params.length_penalty,
+            "repetition_penalty": gen_params.repetition_penalty,
+            "do_sample": gen_params.do_sample,
+            "temperature": gen_params.temperature if gen_params.do_sample else None,
+            "use_8bit": use_8bit,
+            "guidance": (gen_params.guidance[:80] + "…") if (gen_params.guidance and len(gen_params.guidance) > 80) else gen_params.guidance,
+        },
+        "impl": "map-reduce, ratio-based length control",
     }
 
     # Stage 3: summarize
     p("summarize", 10)
     from yt_sum.utils.asr import detect_device
     device = detect_device()
-    summarizer = BaselineSummarizer(model_name=summarizer_model, device=device if device == "cuda" else None)
-    if num_beams and num_beams > 0:
-        summarizer.model.config.num_beams = num_beams
-        summarizer.model.config.early_stopping = True
 
-    if chunked:
-        # chunked path with progress per-chunk (if callback provided)
-        from yt_sum.utils.chunker import chunk_by_tokens
-        chunks = chunk_by_tokens(transcript_text, summarizer.tokenizer, max_tokens=chunk_tokens, overlap=chunk_overlap)
-        n = max(1, len(chunks))
-        parts: List[str] = []
-        for i, ch in enumerate(chunks, 1):
-            parts.append(summarizer.summarize(ch, max_new_tokens=max_new_tokens, min_new_tokens=min_new_tokens, num_beams=num_beams))
-            p("summarize", 10 + int(80 * i / n))
-        fused = "\n".join(f"- {p_}" for p_ in parts)
-        summary = summarizer.summarize(fused, max_new_tokens=fuse_max, min_new_tokens=fuse_min, num_beams=num_beams)
+    # Init summarizer with GPU + 8-bit preferences
+    summarizer = BaselineSummarizer(
+        model_name=summarizer_model,
+        device=device if device == "cuda" else None,
+        use_8bit=use_8bit,
+    )
+
+    # Heuristic: if chunked flag is on OR transcript is lengthy, use summarize_long
+    use_long = chunked or (len(transcript_text) > 4000)
+
+    if use_long:
+        summary = summarizer.summarize_long(transcript_text, params=gen_params)
     else:
-        summary = summarizer.summarize(transcript_text, max_new_tokens=fuse_max, min_new_tokens=fuse_min, num_beams=num_beams)
-        p("summarize", 95)
+        summary = summarizer.summarize(transcript_text, params=gen_params)
+
     p("summarize", 100)
 
     meta_out = {
