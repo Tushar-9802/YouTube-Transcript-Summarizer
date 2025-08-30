@@ -7,52 +7,68 @@ from yt_sum.utils.config import Config
 from yt_sum.utils.downloader import download_audio
 from yt_sum.utils.hw import get_device_info, auto_asr_choice, auto_summarizer_params
 from yt_sum.utils.asr import transcribe_audio as whisper_transcribe
-from yt_sum.models.summarizer import BaselineSummarizer, GenParams  # <-- NEW
+from yt_sum.models.summarizer import BaselineSummarizer, GenParams
 
 ProgressFn = Callable[[str, int, Dict[str, Any]], None]  # stage, percent, extra
 
 def run_pipeline(
     url: str,
     cfg: Config,
-    whisper_size: Optional[str] = None,              # if None -> auto
+    *,
+    # --- ASR / model selection ---
+    whisper_size: Optional[str] = None,              # None => auto pick based on GPU/length
     summarizer_model: str = "facebook/bart-large-cnn",
-    chunked: bool = True,
+    chunked: bool = True,                            # True => map→reduce path (recommended)
 
-    # ---- Legacy knobs (still supported for backward-compat) ----
+    # --- Legacy knobs (kept for backward-compat) ---
     max_new_tokens: Optional[int] = None,
     min_new_tokens: Optional[int] = None,
     num_beams: Optional[int] = None,
     chunk_tokens: Optional[int] = None,
     chunk_overlap: Optional[int] = None,
 
-    # ---- New summarizer params (preferred) ----
+    # --- New summarizer params (preferred, a dict from the UI) ---
     summarizer_params: Optional[Dict[str, Any]] = None,
 
-    language: Optional[str] = None,                  # force language; None = autodetect
-    prefer_accuracy: bool = True,                    # auto selector hint
+    # --- ASR options ---
+    language: Optional[str] = None,                  # None => autodetect
+    prefer_accuracy: bool = True,                    # Bigger/fairer ASR if True
     progress: Optional[ProgressFn] = None,
 ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     """
-    Returns:
-      meta_out: dict with video/meta + selections + paths
-      results:  dict with transcript + summary
+    High-level pipeline:
+      1) Detect device, download audio.
+      2) Transcribe (Faster-Whisper if possible; Whisper fallback).
+      3) Summarize with a single general model (map→reduce if long).
+      Returns:
+        meta_out: video/meta + selections + file paths
+        results : transcript text + summary text
     """
+
+    # Helper to push progress to Streamlit
     extra: Dict[str, Any] = {}
     def p(stage: str, pct: int):
         if progress:
             progress(stage, max(0, min(100, pct)), extra)
 
-    # Stage 0: device info
-    dev = get_device_info()
+    # -------------------------
+    # 0) Device / environment
+    # -------------------------
+    dev = get_device_info()  # GPU/CPU info + VRAM snapshot
     extra["device"] = {"cuda": dev.cuda, "name": dev.name, "free_gb": dev.free_gb, "total_gb": dev.total_gb}
     p("init", 0)
 
-    # Stage 1: download
+    # -------------------------
+    # 1) Download audio
+    # -------------------------
     p("download", 5)
-    audio_path, meta = download_audio(url, cfg.audio_dir)
+    audio_path, meta = download_audio(url, cfg.audio_dir)  # uses yt-dlp; returns file path + metadata
     p("download", 100)
 
-    # Decide ASR
+    # -------------------------
+    # 2) Transcribe
+    # -------------------------
+    # Pick ASR model/compute automatically unless the user forced one.
     asr_choice = auto_asr_choice(meta.get("duration"), language, prefer_accuracy) if whisper_size is None else {
         "backend": "faster",
         "model_size": whisper_size,
@@ -61,7 +77,6 @@ def run_pipeline(
     }
     extra["asr_choice"] = asr_choice
 
-    # Stage 2: transcribe
     p("transcribe", 10)
     try:
         if asr_choice["backend"] == "faster":
@@ -75,7 +90,7 @@ def run_pipeline(
                     compute_type=asr_choice["compute_type"],
                 )
             except Exception as e:
-                # fallback to whisper if faster-whisper not installed or failed
+                # Safe fallback to OpenAI Whisper
                 result = whisper_transcribe(
                     audio_path, asr_choice["model_size"], cfg.transcript_dir, language=asr_choice["language"]
                 )
@@ -92,12 +107,12 @@ def run_pipeline(
     if not transcript_text:
         raise RuntimeError("Empty transcript.")
 
-    # ----------------------------
-    # Build summarization settings
-    # ----------------------------
-    # Auto defaults (used if user didn't provide new params)
+    # ---------------------------------------------------
+    # 3) Summarization settings (auto + user parameters)
+    # ---------------------------------------------------
+    # Auto budgets from transcript length (used as defaults and logged for reproducibility)
     auto_sum = auto_summarizer_params(transcript_text, result.get("language"))
-    # Legacy -> defaults (still computed for compatibility/metadata)
+    # Legacy fallbacks (still computed for metadata / compatibility)
     if chunk_tokens is None:      chunk_tokens = auto_sum["chunk_tokens"]
     if chunk_overlap is None:     chunk_overlap = auto_sum["chunk_overlap"]
     if num_beams is None:         num_beams = auto_sum["num_beams"]
@@ -106,12 +121,10 @@ def run_pipeline(
     fuse_max = auto_sum["fuse_max"]
     fuse_min = auto_sum["fuse_min"]
 
-    # New-style params from UI (preferred)
+    # New-style params (preferred): robust, ratio-based GenParams
     sp = summarizer_params or {}
-    # Efficiency: default to 8-bit on CUDA unless explicitly disabled
-    use_8bit = bool(sp.get("use_8bit", dev.cuda))
+    use_8bit = bool(sp.get("use_8bit", dev.cuda))  # default to 8-bit on CUDA
 
-    # Compose GenParams (ratio-based budgets). We keep sensible fallbacks.
     gen_params = GenParams(
         summary_ratio=float(sp.get("summary_ratio", 0.18)),
         reduce_target_tokens=int(sp.get("reduce_target_tokens", fuse_max)),
@@ -126,12 +139,11 @@ def run_pipeline(
         guidance=(sp.get("guidance") or None),
     )
 
-    # Record selections (old + new) for the UI
+    # Log all the choices so the UI can display them (useful for a paper appendix)
     extra["summarizer"] = {
         "model": summarizer_model,
         "chunked": chunked,
-        # legacy/autos (for reference)
-        "legacy": {
+        "legacy": {  # auto baselines for reference
             "chunk_tokens_auto": chunk_tokens,
             "chunk_overlap_auto": chunk_overlap,
             "num_beams_auto": num_beams,
@@ -140,8 +152,7 @@ def run_pipeline(
             "fuse_max_auto": fuse_max,
             "fuse_min_auto": fuse_min,
         },
-        # new/active
-        "active": {
+        "active": {  # actually used
             "reduce_target_tokens": gen_params.reduce_target_tokens,
             "summary_ratio": gen_params.summary_ratio,
             "num_beams": gen_params.num_beams,
@@ -155,24 +166,26 @@ def run_pipeline(
             "use_8bit": use_8bit,
             "guidance": (gen_params.guidance[:80] + "…") if (gen_params.guidance and len(gen_params.guidance) > 80) else gen_params.guidance,
         },
-        "impl": "map-reduce, ratio-based length control",
+        "impl": "single-model, map→reduce, ratio-based length control",
     }
 
-    # Stage 3: summarize
+    # -------------------------
+    # 4) Summarize
+    # -------------------------
     p("summarize", 10)
+
+    # Pick the device for the summarizer (CUDA if available)
     from yt_sum.utils.asr import detect_device
     device = detect_device()
 
-    # Init summarizer with GPU + 8-bit preferences
     summarizer = BaselineSummarizer(
-        model_name=summarizer_model,
+        model_name=summarizer_model,              # one base model (Route-1)
         device=device if device == "cuda" else None,
-        use_8bit=use_8bit,
+        use_8bit=use_8bit,                        # save VRAM on GPUs
     )
 
-    # Heuristic: if chunked flag is on OR transcript is lengthy, use summarize_long
-    use_long = chunked or (len(transcript_text) > 4000)
-
+    # Prefer map→reduce for coverage, or single-shot for short transcripts
+    use_long = chunked or (len(transcript_text) > 4000)  # char-length heuristic is okay here
     if use_long:
         summary = summarizer.summarize_long(transcript_text, params=gen_params)
     else:
@@ -180,6 +193,9 @@ def run_pipeline(
 
     p("summarize", 100)
 
+    # -------------------------
+    # 5) Package outputs
+    # -------------------------
     meta_out = {
         "video": {
             "id": meta.get("id"),
@@ -195,5 +211,9 @@ def run_pipeline(
             "transcript": str((cfg.transcript_dir / f"{meta.get('id')}.txt").resolve())
         }
     }
-    results = {"language": result.get("language"), "transcript": transcript_text, "summary": summary}
+    results = {
+        "language": result.get("language"),
+        "transcript": transcript_text,
+        "summary": summary,
+    }
     return meta_out, results

@@ -4,6 +4,7 @@ transformers==4.55.2
 accelerate>=0.33.0               # for device_map="auto" & model dispatch
 safetensors>=0.4.3
 sentencepiece==0.2.1
+huggingface_hub>=0.23.0
 
 # Optional 8-bit GPU quantization (skip on Windows)
 bitsandbytes>=0.43.1; platform_system != "Windows"
@@ -16,6 +17,7 @@ faster-whisper>=1.0.0            # CTranslate2-based; no Torch dependency
 openai-whisper>=20231117         # fallback; uses Torch
 
 # ---- Audio / media ----
+numpy<2.0                        # safer with librosa/soundfile stacks
 librosa==0.10.2.post1            # 0.11.0 doesn't exist; this is current stable
 soundfile>=0.12.1                # librosa backend
 yt-dlp==2025.8.11                # latest as of Aug 2025
@@ -24,6 +26,6 @@ yt-dlp==2025.8.11                # latest as of Aug 2025
 streamlit==1.48.1
 python-docx>=0.8.11
 PyYAML==6.0.2
-pynvml>=11.5.0                   # nicer GPU VRAM stats in hw.py (optional)
+pynvml>=11.5.0; platform_system != "Darwin"   # nicer GPU VRAM stats in hw.py (optional)
 
 # (system) ffmpeg is required at runtime for audio I/O; install via OS package manager

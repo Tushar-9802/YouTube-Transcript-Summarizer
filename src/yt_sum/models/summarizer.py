@@ -1,129 +1,84 @@
-# # src/yt_sum/models/summarizer.py
-# from typing import Optional, List
-# import torch
-# from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-# from yt_sum.utils.chunker import chunk_by_tokens
-
-# class BaselineSummarizer:
-#     def __init__(self, model_name: str = "facebook/bart-large-cnn", device: Optional[str] = None):
-#         self.model_name = model_name
-#         self.tokenizer = AutoTokenizer.from_pretrained(model_name)
-#         self.model = AutoModelForSeq2SeqLM.from_pretrained(model_name)
-#         self.device = torch.device(device) if device else torch.device("cuda" if torch.cuda.is_available() else "cpu")
-#         self.model.to(self.device)
-#         self.model.eval()
-
-#     @torch.no_grad()
-#     def summarize(
-#         self,
-#         text: str,
-#         max_new_tokens: int = 160,
-#         min_new_tokens: int = 50,
-#         num_beams: Optional[int] = None,
-#         do_sample: bool = False,
-#         top_p: Optional[float] = None,
-#         temperature: Optional[float] = None,
-#     ) -> str:
-#         inputs = self.tokenizer(text, truncation=True, max_length=1024, return_tensors="pt")
-#         inputs = {k: v.to(self.device) for k, v in inputs.items()}
-#         gen_kwargs = dict(
-#             max_new_tokens=max_new_tokens,
-#             min_new_tokens=min_new_tokens,
-#             no_repeat_ngram_size=3,
-#             do_sample=do_sample,
-#         )
-#         if num_beams and num_beams > 0:
-#             gen_kwargs.update(num_beams=num_beams, early_stopping=True)
-#         if do_sample:
-#             if top_p is not None: gen_kwargs["top_p"] = top_p
-#             if temperature is not None: gen_kwargs["temperature"] = temperature
-
-#         out = self.model.generate(**inputs, **gen_kwargs)
-#         return self.tokenizer.decode(out[0], skip_special_tokens=True)
-
-#     @torch.no_grad()
-#     def summarize_long(
-#         self,
-#         text: str,
-#         chunk_tokens: int = 900,
-#         chunk_overlap: int = 120,
-#         per_chunk_max: int = 120,
-#         per_chunk_min: int = 40,
-#         fuse_max: int = 240,
-#         fuse_min: int = 80,
-#         num_beams: Optional[int] = None,
-#     ) -> str:
-#         parts: List[str] = []
-#         for ch in chunk_by_tokens(text, self.tokenizer, max_tokens=chunk_tokens, overlap=chunk_overlap):
-#             parts.append(self.summarize(ch, max_new_tokens=per_chunk_max, min_new_tokens=per_chunk_min, num_beams=num_beams))
-#         fused = "\n".join(f"- {p}" for p in parts)
-#         return self.summarize(fused, max_new_tokens=fuse_max, min_new_tokens=fuse_min, num_beams=num_beams)
 # src/yt_sum/models/summarizer.py
-# src/yt_sum/summarizer.py
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-
 from yt_sum.utils.chunker import chunk_by_tokens
 
-# Friendly keys → HF IDs (feel free to add more later)
+# (Optional) friendly aliases; raw HF IDs still work.
 MODEL_ALIASES: Dict[str, str] = {
     "bart-cnn": "facebook/bart-large-cnn",
-    "pegasus-cnn": "google/pegasus-cnn_dailymail",
-    # Optional (keep for future guided runs)
-    "pegasus-large": "google/pegasus-large",
     "t5-large": "t5-large",
 }
 
 def _resolve_model_name(name: str) -> str:
-    return MODEL_ALIASES.get(name, name)  # allow raw HF IDs too
+    return MODEL_ALIASES.get(name, name)
 
+# ----------------------------
+# Generation parameter bundle
+# ----------------------------
 @dataclass
 class GenParams:
-    # Length control (auto if None)
-    summary_ratio: float = 0.18          # ~18% of input tokens per chunk
-    reduce_target_tokens: int = 320      # final fuse target
-    # Decoding
+    # Length control
+    summary_ratio: float = 0.18          # ~% of input tokens to keep per chunk
+    reduce_target_tokens: int = 320      # final fuse target (tokens)
+    # Decoding (research-friendly defaults)
     num_beams: int = 5
-    length_penalty: float = 0.9          # <1.0 favors longer outputs
+    length_penalty: float = 0.9          # <1.0 biases toward longer outputs
     repetition_penalty: float = 1.08
     no_repeat_ngram_size: int = 3
     do_sample: bool = False
     temperature: float = 1.0
     # Chunking
-    chunk_tokens: int = 900              # keep < model limit (1024) with margin
+    chunk_tokens: int = 900              # safe headroom under 1024 typical limit
     chunk_overlap: int = 120
-    # Optional guidance (used later / works now too)
-    guidance: Optional[str] = None       # e.g., "Summarize with Methods, Results, Limitations."
+    # Optional guidance (light steering)
+    guidance: Optional[str] = None
 
+    @classmethod
+    def from_dict(cls, d: Optional[Dict[str, Any]]) -> "GenParams":
+        if not d:
+            return cls()
+        # Only accept known keys; ignore extras gracefully
+        fields = {f.name for f in cls.__dataclass_fields__.values()}
+        return cls(**{k: v for k, v in d.items() if k in fields})
+
+# ----------------------------
+# Summarizer (single-model)
+# ----------------------------
 class BaselineSummarizer:
     """
-    Research-friendly abstractive summarizer:
-      - summarize(): single-shot for <=1024 tokens with auto budgets
-      - summarize_long(): chunked map→reduce with token-ratio control
+    One-model, research-friendly summarizer.
+
+    - summarize():     single-shot for <= model context
+    - summarize_long(): map→reduce for long transcripts with ratio-based budgets
+
+    Design choices:
+      * Deterministic decoding (no sampling) unless you turn it on
+      * 8-bit optional loading on CUDA (VRAM-friendly)
+      * Backward-compatible with earlier numeric-arg signature
     """
+
     def __init__(
         self,
         model_name: str = "facebook/bart-large-cnn",
         device: Optional[str] = None,
-        use_8bit: bool = True,            # optional 8-bit load to save VRAM
-        device_map: str = "auto"          # requires accelerate for 8-bit path
+        use_8bit: bool = True,
+        device_map: str = "auto",
     ):
         self.model_name = _resolve_model_name(model_name)
         self.tokenizer = AutoTokenizer.from_pretrained(self.model_name, use_fast=True)
 
+        # Pick device
         self.device = torch.device(device) if device else torch.device(
             "cuda" if torch.cuda.is_available() else "cpu"
         )
 
+        # Try an 8-bit load on CUDA for memory savings. Fall back transparently.
         self.quantized = False
-        self.model = None
-
-        # Try efficient 8-bit load; gracefully fall back if not available
-        if use_8bit and torch.cuda.is_available():
-            try:
+        try:
+            if use_8bit and self.device.type == "cuda":
                 from transformers import BitsAndBytesConfig
                 bnb_cfg = BitsAndBytesConfig(load_in_8bit=True)
                 self.model = AutoModelForSeq2SeqLM.from_pretrained(
@@ -132,78 +87,135 @@ class BaselineSummarizer:
                     device_map=device_map,
                 )
                 self.quantized = True
-            except Exception:
-                # fallback to normal FP16/FP32
-                pass
-
-        if self.model is None:
+            else:
+                raise RuntimeError("8-bit not requested or not on CUDA")
+        except Exception:
             self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
             self.model.to(self.device)
 
         self.model.eval()
 
-        # Safe input cap (most seq2seq here support 1024)
-        self.max_in_tokens = min(
-            1024,
-            getattr(getattr(self.model, "config", None), "max_position_embeddings", 1024)
-        ) - 32  # margin for special tokens
+        # Reproducibility: deterministic kernels + seed
+        torch.set_float32_matmul_precision("high")
+        torch.backends.cudnn.benchmark = False
+        torch.backends.cudnn.deterministic = True
+        torch.manual_seed(42)
 
-    # ---------- internal helpers ----------
+        # Safe encoder input cap; keep small margin for special tokens
+        max_ctx = getattr(getattr(self.model, "config", None), "max_position_embeddings", 1024)
+        cfg = getattr(self.model, "config", None)
+        max_len = (
+        getattr(cfg, "max_position_embeddings", None)
+        or getattr(cfg, "max_encoder_positions", None)  # some models (e.g., BART) expose this
+        or 1024
+        )
+        # keep a little headroom for special tokens
+        self.max_in_tokens = max(512, int(max_len) - 32)    
+
+    # ---------------- internal helpers ----------------
     def _prepend_guidance(self, text: str, guidance: Optional[str]) -> str:
         if not guidance:
             return text
-        # For encoder-decoder models like BART/PEGASUS, prefix guidance in the input
+        # Simple instruction prefix (works well for BART/T5/LED)
         return f"Instruction: {guidance}\n\nTranscript:\n{text}"
 
     def _budget_from_len(self, in_len: int, ratio: float) -> Tuple[int, int]:
-        # Robust budget from input length
+        """
+        Compute min/max new tokens given the *input* token length.
+        Heuristic: ensure enough room to be informative but not ramble.
+        """
         target = max(120, int(in_len * ratio))
         max_new = min(512, max(target, 220))
         min_new = max(100, min(max_new - 80, int(target * 0.7)))
         return min_new, max_new
 
-    def _generate(self, text: str, p: GenParams) -> str:
+    def _generate_once(self, text: str, p: GenParams) -> str:
         inp = self._prepend_guidance(text, p.guidance)
-
         enc = self.tokenizer(
             inp, truncation=True, max_length=self.max_in_tokens, return_tensors="pt"
         )
-        enc = {k: v.to(self.model.device if self.quantized else self.device) for k, v in enc.items()}
+        dev = self.model.device if self.quantized else self.device
+        enc = {k: v.to(dev) for k, v in enc.items()}
 
-        # Auto length budgets from actual input token count
         in_len = int(enc["input_ids"].shape[1])
         min_new, max_new = self._budget_from_len(in_len, p.summary_ratio)
 
         gen_kwargs = dict(
             min_new_tokens=min_new,
             max_new_tokens=max_new,
-            num_beams=p.num_beams,
+            num_beams=max(1, int(p.num_beams)),
             early_stopping=True,
-            length_penalty=p.length_penalty,
-            repetition_penalty=p.repetition_penalty,
-            no_repeat_ngram_size=p.no_repeat_ngram_size,
-            do_sample=p.do_sample,
+            length_penalty=float(p.length_penalty),
+            repetition_penalty=float(p.repetition_penalty),
+            no_repeat_ngram_size=int(p.no_repeat_ngram_size),
+            do_sample=bool(p.do_sample),
         )
         if p.do_sample:
-            gen_kwargs["temperature"] = p.temperature
+            gen_kwargs["temperature"] = float(p.temperature)
 
         with torch.no_grad():
             out = self.model.generate(**enc, **gen_kwargs)
 
         return self.tokenizer.decode(out[0], skip_special_tokens=True)
 
-    # ---------- public API ----------
+    # --------------- public API ---------------
     @torch.no_grad()
     def summarize(
         self,
         text: str,
         *,
         params: Optional[GenParams] = None,
+        # --- legacy numeric knobs (kept for backward-compat) ---
+        max_new_tokens: Optional[int] = None,
+        min_new_tokens: Optional[int] = None,
+        num_beams: Optional[int] = None,
+        length_penalty: Optional[float] = None,
+        repetition_penalty: Optional[float] = None,
+        no_repeat_ngram_size: Optional[int] = None,
+        do_sample: Optional[bool] = None,
+        temperature: Optional[float] = None,
     ) -> str:
+        """
+        Single-shot summarization. Prefer summarize_long() for long transcripts.
+        If legacy numeric args are provided, they override p where applicable.
+        """
         if not text or not text.strip():
             return ""
         p = params or GenParams()
-        return self._generate(text, p)
+
+        # Legacy overrides (optional)
+        if num_beams is not None:           p.num_beams = num_beams
+        if length_penalty is not None:      p.length_penalty = length_penalty
+        if repetition_penalty is not None:  p.repetition_penalty = repetition_penalty
+        if no_repeat_ngram_size is not None:p.no_repeat_ngram_size = no_repeat_ngram_size
+        if do_sample is not None:           p.do_sample = do_sample
+        if temperature is not None:         p.temperature = temperature
+
+        # If explicit budgets are given, temporarily replace ratio-based budget
+        if (max_new_tokens is not None) or (min_new_tokens is not None):
+            def _fixed_generate(txt: str) -> str:
+                inp = self._prepend_guidance(txt, p.guidance)
+                enc = self.tokenizer(inp, truncation=True, max_length=self.max_in_tokens, return_tensors="pt")
+                dev = self.model.device if self.quantized else self.device
+                enc = {k: v.to(dev) for k, v in enc.items()}
+                gk = dict(
+                    max_new_tokens=max_new_tokens or 160,
+                    min_new_tokens=min_new_tokens or max(0, (max_new_tokens or 160) - 80),
+                    num_beams=max(1, int(p.num_beams)),
+                    early_stopping=True,
+                    length_penalty=float(p.length_penalty),
+                    repetition_penalty=float(p.repetition_penalty),
+                    no_repeat_ngram_size=int(p.no_repeat_ngram_size),
+                    do_sample=bool(p.do_sample),
+                )
+                if p.do_sample:
+                    gk["temperature"] = float(p.temperature)
+                with torch.no_grad():
+                    out = self.model.generate(**enc, **gk)
+                return self.tokenizer.decode(out[0], skip_special_tokens=True)
+            return _fixed_generate(text)
+
+        return self._generate_once(text, p)
 
     @torch.no_grad()
     def summarize_long(
@@ -211,12 +223,31 @@ class BaselineSummarizer:
         text: str,
         *,
         params: Optional[GenParams] = None,
+        # --- legacy numeric knobs (kept for backward-compat) ---
+        chunk_tokens: Optional[int] = None,
+        chunk_overlap: Optional[int] = None,
+        per_chunk_max: Optional[int] = None,
+        per_chunk_min: Optional[int] = None,
+        fuse_max: Optional[int] = None,
+        fuse_min: Optional[int] = None,
+        num_beams: Optional[int] = None,
     ) -> str:
+        """
+        Map→reduce summarization:
+          1) Split into token-budget chunks with overlap.
+          2) Summarize each chunk (ratio-based budgets).
+          3) Fuse chunk summaries into a long, coherent final summary.
+        """
         if not text or not text.strip():
             return ""
         p = params or GenParams()
 
-        # 1) map: sentence-aware, token-budget chunking
+        # Legacy overrides (optional)
+        if chunk_tokens is not None:    p.chunk_tokens = min(int(chunk_tokens), self.max_in_tokens)
+        if chunk_overlap is not None:   p.chunk_overlap = int(chunk_overlap)
+        if num_beams is not None:       p.num_beams = int(num_beams)
+
+        # 1) chunk
         chunks: List[str] = chunk_by_tokens(
             text,
             self.tokenizer,
@@ -226,74 +257,51 @@ class BaselineSummarizer:
         if not chunks:
             return ""
 
-        # 2) summarize each chunk with auto budgets (ratio-based)
-        partials: List[str] = []
-        for ch in chunks:
-            partials.append(self._generate(ch, p))
-
+        # 2) summarize each chunk (ratio budgets)
+        partials: List[str] = [self._generate_once(ch, p) for ch in chunks]
         if len(partials) == 1:
             return partials[0]
 
-        # 3) reduce: fuse partials, target a controlled final size
+        # 3) fuse summaries (explicit fuse budgets if provided; else target reduce_target_tokens)
         fused_in = "\n\n".join(partials)
 
-        # For the fuse step, keep beams high but shrink budgets to target
-        fuse_p = GenParams(
-            summary_ratio=p.summary_ratio,
-            reduce_target_tokens=p.reduce_target_tokens,
-            num_beams=max(5, p.num_beams),
-            length_penalty=p.length_penalty,
-            repetition_penalty=p.repetition_penalty,
-            no_repeat_ngram_size=p.no_repeat_ngram_size,
-            do_sample=p.do_sample,
-            temperature=p.temperature,
-            chunk_tokens=p.chunk_tokens,
-            chunk_overlap=p.chunk_overlap,
-            guidance=p.guidance,
-        )
-
-        # Manually override budgets for fuse pass
         def _fuse(text_in: str) -> str:
-            inp = self._prepend_guidance(text_in, fuse_p.guidance)
-            enc = self.tokenizer(
-                inp, truncation=True, max_length=self.max_in_tokens, return_tensors="pt"
-            )
-            enc = {k: v.to(self.model.device if self.quantized else self.device) for k, v in enc.items()}
+            inp = self._prepend_guidance(text_in, p.guidance)
+            enc = self.tokenizer(inp, truncation=True, max_length=self.max_in_tokens, return_tensors="pt")
+            dev = self.model.device if self.quantized else self.device
+            enc = {k: v.to(dev) for k, v in enc.items()}
 
-            gen_kwargs = dict(
-                min_new_tokens=max(120, fuse_p.reduce_target_tokens - 80),
-                max_new_tokens=min(512, fuse_p.reduce_target_tokens),
-                num_beams=fuse_p.num_beams,
+            # Either honor legacy fuse_* or use reduce_target_tokens
+            min_new = (fuse_min if fuse_min is not None else max(120, p.reduce_target_tokens - 80))
+            max_new = (fuse_max if fuse_max is not None else min(512, p.reduce_target_tokens))
+
+            gk = dict(
+                min_new_tokens=int(min_new),
+                max_new_tokens=int(max_new),
+                num_beams=max(5, int(p.num_beams)),
                 early_stopping=True,
-                length_penalty=fuse_p.length_penalty,
-                repetition_penalty=fuse_p.repetition_penalty,
-                no_repeat_ngram_size=fuse_p.no_repeat_ngram_size,
-                do_sample=fuse_p.do_sample,
+                length_penalty=float(p.length_penalty),
+                repetition_penalty=float(p.repetition_penalty),
+                no_repeat_ngram_size=int(p.no_repeat_ngram_size),
+                do_sample=bool(p.do_sample),
             )
-            if fuse_p.do_sample:
-                gen_kwargs["temperature"] = fuse_p.temperature
+            if p.do_sample:
+                gk["temperature"] = float(p.temperature)
 
             with torch.no_grad():
-                out = self.model.generate(**enc, **gen_kwargs)
+                out = self.model.generate(**enc, **gk)
             return self.tokenizer.decode(out[0], skip_special_tokens=True)
 
-        # If fused input still too long, multi-stage reduce
-        enc_len = len(self.tokenizer(fused_in, add_special_tokens=False).input_ids)
+        # If fused text overflows encoder, reduce in stages
+        enc_len = len(self.tokenizer(fused_in, add_special_tokens=False)["input_ids"])
         if enc_len > self.max_in_tokens:
-            # second-level map-reduce over partials
             mids: List[str] = []
-            mid_chunks = chunk_by_tokens(
-                fused_in,
-                self.tokenizer,
-                max_tokens=self.max_in_tokens,
-                overlap=p.chunk_overlap,
-            )
-            for m in mid_chunks:
+            for m in chunk_by_tokens(fused_in, self.tokenizer, max_tokens=self.max_in_tokens, overlap=p.chunk_overlap):
                 mids.append(_fuse(m))
             fused_in = "\n\n".join(mids)
 
         return _fuse(fused_in)
 
-    # Optional: change model at runtime (for UI dropdowns)
+    # Convenience if you want to hot-swap models from the UI
     def switch_model(self, model_name: str, **kwargs) -> None:
         self.__init__(model_name=model_name, device=str(self.device), **kwargs)
