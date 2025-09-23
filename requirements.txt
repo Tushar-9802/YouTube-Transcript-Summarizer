@@ -1,31 +1,35 @@
 # ---- Core ML stack ----
-torch==2.8.0                     # Install CUDA build separately (see note below)
-transformers==4.55.2
-accelerate>=0.33.0               # for device_map="auto" & model dispatch
-safetensors>=0.4.3
-sentencepiece==0.2.1
+torch==2.2.2                     # Use pip/conda CUDA build manually (latest stable Feb 2025)
+transformers==4.45.2             # Stable HuggingFace release
+accelerate>=0.33.0               # Device placement & model sharding
+safetensors>=0.4.3               # Safe model serialization
+sentencepiece>=0.2.0             # Required for many HuggingFace models
 huggingface_hub>=0.23.0
 
-# Optional 8-bit GPU quantization (skip on Windows)
+# Optional 8-bit GPU quantization (Linux/macOS only; bnb not fully supported on Windows)
 bitsandbytes>=0.43.1; platform_system != "Windows"
 
 # ---- Summarization / tokenization helpers ----
-blingfire==0.1.8                 # fast sentence splitting (optional but recommended)
+blingfire==0.1.8                 # Fast sentence segmentation
 
-# ---- ASR (both fast path and fallback) ----
-faster-whisper>=1.0.0            # CTranslate2-based; no Torch dependency
-openai-whisper>=20231117         # fallback; uses Torch
+# ---- ASR (Whisper) ----
+faster-whisper>=1.0.0             # CTranslate2 backend (GPU/CPU)
+openai-whisper>=20231117          # Torch-based fallback Whisper
 
 # ---- Audio / media ----
-numpy<2.0                        # safer with librosa/soundfile stacks
-librosa==0.10.2.post1            # 0.11.0 doesn't exist; this is current stable
-soundfile>=0.12.1                # librosa backend
-yt-dlp==2025.8.11                # latest as of Aug 2025
+numpy<2.0                         # Safe with librosa/soundfile
+librosa==0.10.2.post1             # Latest stable (Jan 2025)
+soundfile>=0.12.1                 # For audio I/O
+yt-dlp>=2025.8.11                 # Keep updated for YouTube changes
 
 # ---- App / utils ----
-streamlit==1.48.1
-python-docx>=0.8.11
-PyYAML==6.0.2
-pynvml>=11.5.0; platform_system != "Darwin"   # nicer GPU VRAM stats in hw.py (optional)
+streamlit==1.38.0                 # Stable, avoids experimental regressions
+python-docx>=0.8.11               # DOCX export
+PyYAML==6.0.2                     # Config parsing
+pynvml>=11.5.0; platform_system != "Darwin"   # GPU VRAM stats (skip on Mac)
 
-# (system) ffmpeg is required at runtime for audio I/O; install via OS package manager
+# ---- Optional extras for domain awareness & factuality ----
+scikit-learn>=1.5.0               # TF-IDF, clustering
+keybert>=0.8.3                    # Keyword extraction (optional)
+yake>=0.4.8                       # Lightweight keyword extractor (optional)
+sentence-transformers>=2.7.0      # For semantic reranking & factuality scoring
