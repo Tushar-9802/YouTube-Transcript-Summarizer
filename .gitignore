@@ -6,17 +6,20 @@ __pycache__/
 # Envs & IDE
 .venv/
 venv/
+venv_lora/
 .env
 .idea/
 .vscode/
 .DS_Store
 
-# App/runtime
+# App/runtime - EXPANDED
 data/audio/
 data/transcripts/
 outputs/
 outputs/runs/
 .streamlit/
+transcripts/
+audio/
 
 # Caches & models
 cache/
@@ -26,6 +29,33 @@ hub/
 *.bin
 *.pt
 *.safetensors
+
+# LoRA-specific
+models/adapters/*/adapter_model.bin
+models/adapters/*/pytorch_model.bin
+models/adapters/*/*.safetensors
+*.pth
+wandb/
+runs/
+checkpoints/
+
+# Evaluation outputs
+evaluation_results/
+evals/
+
+# Embedded repos
+data/ms2_raw/
+
+# Keep configs
+!models/adapters/*/adapter_config.json
+!models/adapters/*/config.json
+
+# Large training datasets (regenerate with prep scripts)
+data/engineering/engineering.jsonl
+data/scientific/scientific.jsonl
+data/scientific/arxiv.jsonl
+data/scientific/pubmed.jsonl
+data/general/cnn.jsonl
 
 # OS / misc
 Thumbs.db

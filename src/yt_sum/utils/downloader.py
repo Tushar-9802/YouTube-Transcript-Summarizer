@@ -130,7 +130,7 @@ def download_audio(url: str, out_dir: Path) -> Tuple[Path, Dict[str, Any]]:
         dl_path = out_dir / f"{vid}.{ext}"
         if not dl_path.exists():
             raise RuntimeError("Downloaded audio file not found on disk.")
-
+    info_dict = ydl.extract_info(url, download=True)
     meta = {
         "id": vid,
         "title": info.get("title"),
@@ -138,6 +138,7 @@ def download_audio(url: str, out_dir: Path) -> Tuple[Path, Dict[str, Any]]:
         "duration": info.get("duration"),
         "view_count": info.get("view_count"),
         "upload_date": info.get("upload_date"),
+        "url": info_dict.get("webpage_url") or url,
     }
 
     # Optional: convert to 16k mono WAV (best for ASR consistency)

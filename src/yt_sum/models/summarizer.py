@@ -1,336 +1,394 @@
-# summarizer.py
+# src/yt_sum/models/summarizer.py
 from __future__ import annotations
 from typing import Optional, List, Tuple
+import os
 import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM, BitsAndBytesConfig
+import platform
+import gc
 
-from yt_sum.utils.chunker import chunk_text
-from yt_sum.utils.keywords import (
-    extract_keywords,
-    select_evidence_sentences,
-    extract_critical_terms,
-)
+from transformers import AutoTokenizer, AutoModelForCausalLM
 
-# Optional embeddings (safe fallback if not installed)
 try:
-    from sentence_transformers import SentenceTransformer, util as st_util
-    _HAS_ST = True
+    from transformers import BitsAndBytesConfig
+    _HAS_BNB = True
 except Exception:
-    _HAS_ST = False
+    _HAS_BNB = False
 
+from src.yt_sum.utils.chunker import chunk_text as _token_chunk
+from src.yt_sum.utils.logging import get_logger
 
+logger = get_logger("summarizer", level="INFO")
+
+# Domain templates
 _TEMPLATES = {
-    "general": ["Context / Topic", "Key Points", "Important Numbers & Terms", "Takeaways"],
-    "medical": [
-        "Study/Context", "Population & Setting", "Interventions/Comparators",
-        "Outcomes & Metrics", "Results & Effect Sizes", "Safety/Adverse Events", "Limitations"
-    ],
-    "engineering": [
-        "Problem & Requirements", "System/Method", "Implementation Details",
-        "Parameters & Metrics", "Results & Benchmarks", "Trade-offs", "Limitations"
-    ],
-    "scientific": [
-        "Hypothesis/Objective", "Methodology", "Experimental Setup",
-        "Results & Statistics", "Analysis", "Limitations"
-    ],
+    "general": ["Context", "Key Points", "Takeaways"],
+    "medical": ["Background", "Methods", "Results", "Clinical Implications", "Limitations"],
+    "engineering": ["Problem", "Technical Approach", "Implementation", "Results", "Trade-offs"],
+    "scientific": ["Research Question", "Methodology", "Findings", "Discussion", "Limitations"],
 }
 
 _GUIDE = {
-    "general": "Write a faithful, precise summary. Avoid speculation.",
-    "medical": "For clinicians: preserve study design, cohorts, interventions, outcomes, effect sizes, CI, p-values, safety signals.",
-    "engineering": "For engineers: preserve assumptions, design choices, algorithms, parameters, metrics, trade-offs, limitations.",
-    "scientific": "For scientists: preserve hypotheses, methodology, experimental setup, results (with uncertainty), and limitations.",
+    "general": "Summarize ONLY what is explicitly stated. Do NOT add external facts or speculation.",
+    "medical": "Extract clinical facts verbatim. Include exact numbers, drug names, outcomes.",
+    "engineering": "Document technical decisions and results as stated. Preserve specifications.",
+    "scientific": "Report methodology and findings exactly. Include statistical values.",
 }
 
-_DOMAIN_ONTO = {
-    "medical": ["RCT", "placebo", "double-blind", "randomized", "dose", "mg", "CI", "p-value", "hazard ratio", "odds ratio", "RR", "AE", "SAE", "biomarker", "phase I", "phase II", "phase III", "endpoint"],
-    "engineering": ["latency", "throughput", "bandwidth", "Hz", "kHz", "MHz", "GHz", "Watts", "FPGA", "ASIC", "GPU", "CPU", "CUDA", "FLOPS", "complexity", "O(n)", "cache", "pipeline", "benchmark"],
-    "scientific": ["hypothesis", "p-value", "confidence interval", "variance", "standard deviation", "effect size", "ANOVA", "regression", "correlation", "control group", "treatment group", "replicate", "blinded"],
-}
-
-_MODEL_LADDER = [
-    (32, "google/long-t5-tglobal-large", 16384),
-    (24, "allenai/led-large-16384-arxiv", 16384),
-    (16, "google/long-t5-tglobal-base", 16384),
-    (12, "allenai/led-base-16384", 16384),
-    (8,  "google/pegasus-large", 1024),
-    (6,  "facebook/bart-large-cnn", 1024),
-]
-_DEFAULT_MODEL = "facebook/bart-large-cnn"
-_DEFAULT_MAXLEN = 1024
+_MODEL_CACHE: dict[str, Tuple[AutoTokenizer, AutoModelForCausalLM]] = {}
 
 
-def _detect_vram_gb() -> float:
-    if torch.cuda.is_available():
-        try:
-            return torch.cuda.get_device_properties(0).total_memory / (1024 ** 3)
-        except Exception:
-            return 0.0
-    return 0.0
+def _slots(domain: str, imrad: bool) -> List[str]:
+    s = list(_TEMPLATES.get(domain, _TEMPLATES["general"]))
+    if imrad:
+        im = ["Introduction", "Methods", "Results", "Discussion"]
+        s = im + [x for x in s if x not in set(im)]
+    return s
 
 
-def _choose_model_name(explicit: Optional[str]) -> Tuple[str, int]:
-    if explicit:
-        return explicit, _DEFAULT_MAXLEN
-    vram = _detect_vram_gb()
-    for min_gb, name, mlen in _MODEL_LADDER:
-        if vram >= min_gb:
-            return name, mlen
-    return _DEFAULT_MODEL, _DEFAULT_MAXLEN
-
-
-class _Embedder:
-    def __init__(self, model_name: str = "sentence-transformers/all-MiniLM-L6-v2"):
-        self.available = _HAS_ST
-        if not self.available:
-            self.model = None
-            return
-        try:
-            self.model = SentenceTransformer(model_name)
-        except Exception:
-            self.model = None
-            self.available = False
-
-    def top_k(self, query: str, sentences: List[str], k: int = 8) -> List[str]:
-        if not self.available or not self.model or not sentences:
-            return []
-        try:
-            q_emb = self.model.encode([query], convert_to_tensor=True, normalize_embeddings=True)
-            s_emb = self.model.encode(sentences, convert_to_tensor=True, normalize_embeddings=True)
-            scores = st_util.cos_sim(q_emb, s_emb)[0]
-            topk = torch.topk(scores, min(k, len(sentences)))
-            idxs = topk.indices.tolist()
-            return [sentences[i] for i in idxs]
-        except Exception:
-            return []
+def _clean(text: str) -> str:
+    """Remove LLM preambles."""
+    if not text:
+        return ""
+    bad = ("Sure", "Here is", "Here's", "Of course", "I will", "I can", "As an AI",
+           "Based on", "According to", "The transcript", "The video", "This video")
+    t = text.strip()
+    for b in bad:
+        if t.startswith(b):
+            idx = t.find('\n')
+            if 0 < idx < 100:
+                t = t[idx+1:].strip()
+            else:
+                t = t[len(b):].lstrip(" :,-")
+    return t.strip()
 
 
 class Summarizer:
     """
-    Hybrid extractive+abstractive hierarchical summarizer:
-      - VRAM-adaptive model selection (LED/LongT5/Pegasus/BART) + optional 8-bit
-      - Evidence-augmented prompts (keyword/MMR + optional embedding rerank)
-      - Ontology-guided retention of numbers/units/acronyms/formulae
-      - Domain templates/slots; optional IMRaD prefix
-      - Optional: compression ratio, audience tone, output language
+    Mistral 7B summarizer with aggressive quantization for 8GB VRAM.
+    
+    KEY OPTIMIZATIONS:
+    - Forces 4-bit NF4 quantization on <=16GB VRAM
+    - Optimized chunk sizes for 32K context window
+    - Greedy decoding for consistency
+    - Proper memory management
     """
-
-    def __init__(self, model_name: Optional[str] = None, use_8bit: Optional[bool] = None):
-        chosen, maxlen_hint = _choose_model_name(model_name)
-        self.model_name = chosen
-        self._maxlen_hint = maxlen_hint
-
-        self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
-
-        if use_8bit is None:
-            use_8bit = torch.cuda.is_available()
-        self.quantized = False
-        if use_8bit and torch.cuda.is_available():
-            try:
-                qconf = BitsAndBytesConfig(load_in_8bit=True)
-                self.model = AutoModelForSeq2SeqLM.from_pretrained(
-                    self.model_name, quantization_config=qconf, device_map="auto"
-                )
-                self.quantized = True
-            except Exception:
-                self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
-        else:
-            self.model = AutoModelForSeq2SeqLM.from_pretrained(self.model_name)
-
-        if torch.cuda.is_available() and not self.quantized:
-            try:
-                self.model = self.model.half().to("cuda")
-            except Exception:
-                self.model = self.model.to("cuda")
-
-        self.chunk_tokens = 900
-        self.chunk_overlap = 120
-        mlen = getattr(self.tokenizer, "model_max_length", self._maxlen_hint)
-        if mlen is None or mlen > 100000:
-            mlen = self._maxlen_hint
-        self.max_input_tokens = int(mlen)
-
-        self._embedder = _Embedder()
-
-    def _slots_for(self, domain: str, imrad: bool) -> List[str]:
-        slots = list(_TEMPLATES.get(domain.lower(), _TEMPLATES["general"]))
-        if imrad:
-            imrad_slots = ["Introduction", "Methods", "Results", "Discussion"]
-            remain = [s for s in slots if s not in set(imrad_slots)]
-            return imrad_slots + remain
-        return slots
-
-    def _audience_tone(self, audience: str) -> str:
-        a = (audience or "expert").lower()
-        if a.startswith("stud"):
-            return "Write for students; explain briefly, keep technical terms but add clarity where needed."
-        return "Write for experts; keep dense technical phrasing and precise terminology."
-
-    def _compression_hint(self, compression_ratio: Optional[float]) -> str:
-        if not compression_ratio:
-            return "Aim for a concise but comprehensive summary."
-        r = max(0.05, min(0.8, float(compression_ratio)))
-        return f"Target a compression ratio of approximately {int(r*100)}% of the source length."
-
-    def _make_prompt(
-    self,
-    domain: str,
-    imrad: bool,
-    retention: List[str],
-    evidence: List[str],
-    audience: str,
-    compression_ratio: Optional[float],
-    output_language: Optional[str] = None,
-) -> str:
-        guide = _GUIDE.get(domain.lower(), _GUIDE["general"])
-        slots = self._slots_for(domain, imrad)
-
-        must_keep = ", ".join(retention[:40]) if retention else ""
-        ev = "\n- ".join(evidence[:10]) if evidence else ""
-        tone = self._audience_tone(audience)
-        comp = self._compression_hint(compression_ratio)
-        lang = (output_language or "").strip().lower()
-
-        lang_hint = ""
-        if lang in {"en", "english"}:
-            lang_hint = "Write the summary in English."
-        elif lang in {"source", "original", "same"}:
-            lang_hint = "Write the summary in the same language as the source."
-
-        # Construct a structured prompt
-        return (
-        f"You are preparing a structured, domain-aware summary.\n"
-        f"Domain guidance: {guide}\n"
-        f"Tone: {tone}\n"
-        f"Length: {comp}\n"
-        f"{lang_hint}\n\n"
-        f"Ensure all important numbers, acronyms, formulas, and key terms are preserved verbatim. "
-        f"{'Also ensure inclusion of: ' + must_keep if must_keep else ''}\n\n"
-        f"Ground the summary in these supporting sentences (do not copy verbatim; paraphrase faithfully):\n- {ev}\n\n"
-        f"Now write the summary using the following structure. Fill each section with content from the source:\n\n"
-        + "\n\n".join([f"{slot}:\n" for slot in slots])
-    )
-
-
-    def _generate(self, text: str, min_len: Optional[int], max_len: Optional[int]) -> str:
-        inputs = self.tokenizer(text, return_tensors="pt", truncation=True, max_length=self.max_input_tokens)
+    
+    def __init__(
+        self,
+        domain: str = "general",
+        summarizer_model: Optional[str] = None,
+        use_8bit: bool = True,
+    ):
+        self.domain = (domain or "general").lower()
+        
+        # ALWAYS use Mistral 7B
+        self.model_name = summarizer_model or "mistralai/Mistral-7B-Instruct-v0.2"
+        
+        # Detect VRAM
+        vram_gb = 0
         if torch.cuda.is_available():
-            inputs = {k: v.to("cuda") for k, v in inputs.items()}
-        inp_len = int(inputs["input_ids"].shape[1])
-        tgt_max = max_len or min(950, max(350, int(inp_len * 0.33)))
-        tgt_min = min_len or (160 if inp_len > 600 else 90)
-        gen = dict(
-            num_beams=5, do_sample=False, no_repeat_ngram_size=3,
-            length_penalty=1.0, early_stopping=True,
-            min_length=tgt_min, max_length=tgt_max
+            try:
+                props = torch.cuda.get_device_properties(0)
+                vram_gb = round(props.total_memory / (1024 ** 3), 1)
+            except Exception:
+                pass
+        
+        # Cache key includes quantization
+        cache_key = f"{self.model_name}_q{use_8bit}_v{vram_gb}"
+        
+        if cache_key in _MODEL_CACHE:
+            logger.info(f"Using cached model: {cache_key}")
+            self.tokenizer, self.model = _MODEL_CACHE[cache_key]
+            self._set_chunk_defaults(vram_gb)
+            return
+        
+        # Load model
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Loading Mistral 7B on {self.device} ({vram_gb:.1f}GB VRAM)...")
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(
+            self.model_name, 
+            use_fast=True, 
+            trust_remote_code=True
         )
-        if getattr(self.model.config, "model_type", "") == "led" and "attention_mask" in inputs:
-            import torch as _t
-            gmask = _t.zeros_like(inputs["attention_mask"])
-            gmask[:, 0] = 1
-            gen["global_attention_mask"] = gmask
-        out_ids = self.model.generate(**inputs, **gen)
-        return self.tokenizer.decode(out_ids[0], skip_special_tokens=True)
-
-    def _build_global_evidence(self, transcript: str) -> Tuple[List[str], List[str]]:
-        terms = extract_critical_terms(transcript)
-        kws = extract_keywords(transcript, top_n=20, method="auto", max_ngram=3)
-        ev = select_evidence_sentences(transcript, kws, top_k=16, diversity=0.35)
-        return terms, ev
-
-    def _rerank_with_embeddings(self, query: str, candidates: List[str], k: int = 8) -> List[str]:
-        if not candidates:
-            return []
-        if not self._embedder.available:
-            return candidates[:k]
-        ranked = self._embedder.top_k(query, candidates, k=k)
-        return ranked if ranked else candidates[:k]
-
+        
+        if self.tokenizer.pad_token is None:
+            self.tokenizer.pad_token = self.tokenizer.eos_token
+        
+        # AGGRESSIVE quantization setup
+        quant_config = None
+        allow_bnb = _HAS_BNB and platform.system() != "Windows"
+        
+        # FORCE quantization on <=16GB (Mistral 7B needs ~14GB FP16)
+        must_quantize = (
+            self.device == "cuda" and
+            vram_gb > 0 and
+            vram_gb <= 16
+        )
+        
+        want_quantize = (
+            self.device == "cuda" and
+            allow_bnb and
+            (use_8bit or must_quantize)
+        )
+        
+        if want_quantize:
+            try:
+                # 4-bit NF4 with double quantization (most aggressive)
+                quant_config = BitsAndBytesConfig(
+                    load_in_4bit=True,
+                    bnb_4bit_quant_type="nf4",
+                    bnb_4bit_use_double_quant=True,
+                    bnb_4bit_compute_dtype=torch.float16,
+                )
+                logger.info(f"Loading with 4-bit NF4 quantization (reduces ~14GB → ~4GB)")
+            except Exception as e:
+                logger.warning(f"4-bit failed: {e}, trying 8-bit")
+                try:
+                    quant_config = BitsAndBytesConfig(load_in_8bit=True)
+                    logger.info(f"Loading with 8-bit quantization (~7GB)")
+                except Exception:
+                    logger.warning("Quantization unavailable, loading FP16 (~14GB)")
+                    quant_config = None
+        
+        # Load model with OOM protection
+        try:
+            self.model = AutoModelForCausalLM.from_pretrained(
+                self.model_name,
+                device_map="auto" if self.device == "cuda" else None,
+                torch_dtype=torch.float16 if self.device == "cuda" else torch.float32,
+                quantization_config=quant_config,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            )
+            logger.info(f"Mistral 7B loaded successfully")
+        except torch.cuda.OutOfMemoryError:
+            logger.error("OOM during model load")
+            raise RuntimeError(
+                f"Insufficient VRAM for Mistral 7B. Need at least 5GB free with quantization. "
+                "Current VRAM: {vram_gb:.1f}GB. Try closing other GPU applications."
+            )
+        except Exception as e:
+            logger.error(f"Model loading failed: {e}")
+            raise
+        
+        # Set chunk sizes for Mistral's 32K context
+        self._set_chunk_defaults(vram_gb)
+        logger.info(f"Chunk settings: {self.chunk_tokens} tokens, {self.chunk_overlap} overlap")
+        
+        # Cache
+        _MODEL_CACHE[cache_key] = (self.tokenizer, self.model)
+    
+    def _set_chunk_defaults(self, vram_gb: float = 0):
+        """VRAM-adaptive chunk sizes for Mistral 7B (32K context)."""
+        if vram_gb <= 8:
+            # Conservative for 8GB: smaller chunks, more passes
+            self.chunk_tokens, self.chunk_overlap = 1200, 150
+        elif vram_gb <= 12:
+            # Balanced for 12GB
+            self.chunk_tokens, self.chunk_overlap = 1800, 200
+        else:
+            # Aggressive for 16GB+: leverage full context
+            self.chunk_tokens, self.chunk_overlap = 2400, 250
+    
+    def _build_prompt(
+        self,
+        text: str,
+        *,
+        imrad: bool,
+        audience: str,
+        compression_ratio: float,
+        output_language: Optional[str],
+    ) -> list:
+        """Build Mistral-optimized prompt."""
+        slots = _slots(self.domain, imrad)
+        guide = _GUIDE.get(self.domain, _GUIDE["general"])
+        comp = max(0.05, min(0.8, float(compression_ratio or 0.2)))
+        lang = output_language or "source"
+        
+        system = (
+            "You are a faithful summarizer. CRITICAL RULES:\n"
+            "1. Use ONLY information in the transcript\n"
+            "2. Never add external knowledge\n"
+            "3. Never speculate\n"
+            "4. Preserve exact numbers, names, terms\n"
+            "5. If uncertain, omit\n"
+            "6. No preambles or meta-commentary\n"
+            "7. State facts directly"
+        )
+        
+        user = (
+            f"Domain: {self.domain}\n"
+            f"Audience: {audience}\n"
+            f"Guidelines: {guide}\n"
+            f"Target length: ~{int(comp*100)}% of source\n"
+            f"Language: {lang}\n\n"
+            f"Structure with these sections:\n"
+            + "\n".join([f"## {s}" for s in slots])
+            + "\n\n---TRANSCRIPT---\n"
+            + text
+            + "\n\nProvide faithful summary:"
+        )
+        
+        return [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user},
+        ]
+    
+    def _generate(
+        self,
+        messages: list,
+        *,
+        max_new_tokens: int = 512,
+    ) -> str:
+        """Generate with greedy decoding."""
+        # Mistral uses chat template
+        if hasattr(self.tokenizer, "apply_chat_template"):
+            prompt = self.tokenizer.apply_chat_template(
+                messages,
+                tokenize=False,
+                add_generation_prompt=True
+            )
+        else:
+            prompt = "\n\n".join([m["content"] for m in messages])
+        
+        inputs = self.tokenizer(
+            prompt,
+            return_tensors="pt",
+            truncation=True,
+            max_length=30000  # Leave room for 32K context
+        ).to(self.model.device)
+        
+        # Greedy decoding
+        gen_kwargs = {
+            "max_new_tokens": max_new_tokens,
+            "pad_token_id": self.tokenizer.eos_token_id,
+            "eos_token_id": self.tokenizer.eos_token_id,
+            "do_sample": False,  # Greedy
+            "repetition_penalty": 1.1,
+            "no_repeat_ngram_size": 3,
+        }
+        
+        with torch.no_grad():
+            outputs = self.model.generate(**inputs, **gen_kwargs)
+        
+        text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # Extract response after prompt (Mistral format)
+        if "[/INST]" in text:
+            text = text.split("[/INST]")[-1]
+        elif "\n\nProvide faithful summary:" in text:
+            text = text.split("\n\nProvide faithful summary:")[-1]
+        
+        return _clean(text)
+    
     def summarize_long(
         self,
         transcript: str,
         *,
-        domain: str = "general",
         imrad: bool = False,
         refinement: bool = True,
         min_len: Optional[int] = None,
         max_len: Optional[int] = None,
         chunk_tokens: Optional[int] = None,
         chunk_overlap: Optional[int] = None,
-        compression_ratio: Optional[float] = None,
+        compression_ratio: Optional[float] = 0.2,
         audience: str = "expert",
         output_language: Optional[str] = None,
+        duration_seconds: Optional[int] = None,
     ) -> str:
-        txt = (transcript or "").strip()
-        if not txt:
+        """Summarize with streaming processing."""
+        text = (transcript or "").strip()
+        if not text:
             return ""
-
-        if chunk_tokens:
-            self.chunk_tokens = int(chunk_tokens)
-        if chunk_overlap:
-            self.chunk_overlap = int(chunk_overlap)
-
-        global_terms, global_evidence = self._build_global_evidence(txt)
-        onto = _DOMAIN_ONTO.get(domain.lower(), [])
-        onto_in_text = [t for t in onto if t in txt]
-        retention_global = list(dict.fromkeys((global_terms[:30] + onto_in_text)))[:40]
-
-        chunks = chunk_text(txt, self.tokenizer, self.chunk_tokens, self.chunk_overlap)
-
+        
+        ctoks = int(chunk_tokens or self.chunk_tokens)
+        cover = int(chunk_overlap or self.chunk_overlap)
+        
+        chunks = _token_chunk(text, tokenizer=self.tokenizer, chunk_tokens=ctoks, chunk_overlap=cover)
+        
+        if not chunks or (len(chunks) == 1 and not chunks[0].strip()):
+            logger.warning("No valid chunks")
+            return "Unable to generate summary: transcript too short"
+        
+        per_chunk_tokens = min(768, max(384, int(ctoks * (compression_ratio or 0.2))))
+        
+        logger.info(f"Processing {len(chunks)} chunks ({per_chunk_tokens} tokens each)")
+        
         partials: List[str] = []
-        for ch in chunks:
-            local_kws = extract_keywords(ch, top_n=12, method="auto", max_ngram=3)
-            ev_cand = select_evidence_sentences(ch, local_kws, top_k=10, diversity=0.35)
-            q = f"{domain} {local_kws[:6]}"
-            ev = self._rerank_with_embeddings(str(q), ev_cand, k=8)
-            retention = list(dict.fromkeys(retention_global + extract_critical_terms(ch)))[:40]
-
-            prompt = self._make_prompt(
-                domain=domain,
+        for i, ch in enumerate(chunks, 1):
+            if not ch.strip():
+                continue
+            
+            logger.info(f"Chunk {i}/{len(chunks)}")
+            
+            msgs = self._build_prompt(
+                ch,
                 imrad=imrad,
-                retention=retention,
-                evidence=ev,
                 audience=audience,
-                compression_ratio=compression_ratio,
+                compression_ratio=(compression_ratio or 0.2),
                 output_language=output_language,
             )
-            src = f"{prompt}\n\nSource:\n{ch}\n\nSummary:"
+            
             try:
-                s = self._generate(src, min_len, max_len)
-                s = self._clean_output(s, self._slots_for(domain, imrad))
-            except Exception:
-                s = ch[:800] + ("..." if len(ch) > 800 else "")
-            partials.append(s.strip())
-
-        combined = "\n\n".join(partials)
-
-        reduce_prompt = self._make_prompt(
-            domain=domain,
-            imrad=imrad,
-            retention=retention_global,
-            evidence=self._rerank_with_embeddings("global", global_evidence, k=10)
-                     or global_evidence[:10],
-            audience=audience,
-            compression_ratio=compression_ratio,
-            output_language=output_language,
-        )
-        reduce_src = f"{reduce_prompt}\n\nSegment Summaries:\n{combined}\n\nUnified Summary:"
-        try:
-            final = self._generate(reduce_src, min_len, max_len)
-            final = self._clean_output(final, self._slots_for(domain, imrad))
-        except Exception:
-            final = combined
-
-        if refinement:
-            ref_src = (
-                f"{reduce_prompt}\n"
-                f"Improve coherence, remove redundancy, and retain key numbers/units/acronyms/formulae verbatim.\n"
-                f"Draft:\n{final}\n\nRefined Summary:"
-            )
+                s = self._generate(msgs, max_new_tokens=per_chunk_tokens)
+                if s:
+                    partials.append(s)
+            except Exception as e:
+                logger.warning(f"Chunk {i} failed: {e}")
+        
+        if not partials:
+            return "Summary generation failed"
+        
+        final = partials[0] if len(partials) == 1 else "\n\n".join(partials)
+        
+        # Refinement for multi-chunk
+        if refinement and len(partials) > 1:
+            logger.info("Running refinement pass")
+            refine_tokens = max(768, min(1536, per_chunk_tokens * len(partials) // 2))
+            
+            msgs = [
+                {
+                    "role": "system",
+                    "content": (
+                        "Refine for coherence. "
+                        "Remove redundancy but DO NOT add new information. "
+                        "Maintain all facts exactly."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": f"Refine:\n\n{final}"
+                },
+            ]
+            
             try:
-                refined = self._generate(ref_src, min_len, max_len)
-                final = self._clean_output(refined, self._slots_for(domain, imrad))
-            except Exception:
-                pass
-
+                final = self._generate(msgs, max_new_tokens=refine_tokens)
+            except Exception as e:
+                logger.warning(f"Refinement failed: {e}")
+        
         return final.strip()
+    
+    def unload(self):
+        """Unload model and clear cache."""
+        try:
+            global _MODEL_CACHE
+            cache_keys_to_remove = [k for k in list(_MODEL_CACHE.keys()) if self.model_name in k]
+            for key in cache_keys_to_remove:
+                logger.info(f"Removing {key} from cache")
+                del _MODEL_CACHE[key]
+
+            if hasattr(self, 'model'):
+                del self.model
+            if hasattr(self, 'tokenizer'):
+                del self.tokenizer
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+                torch.cuda.ipc_collect()
+            gc.collect()
+
+            logger.info("Summarizer unloaded")
+        except Exception as e:
+            logger.warning(f"Unload error: {e}")
