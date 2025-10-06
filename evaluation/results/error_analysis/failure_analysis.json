@@ -1,0 +1,771 @@
+{
+  "total_lora": 48,
+  "total_base": 48,
+  "lora_errors": [
+    {
+      "video_id": "uOcpsXMJcJk",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4584382871536523,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "jP0qT6GpBVY",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4171428571428571,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "7D-gxaie6UI",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3513513513513513,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "JNTOahIeCfA",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4387096774193548,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "e06y0rZ1-Ws",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3432835820895522,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "yQ6VOOd73MA",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.2991689750692521,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "HUP9nQdpUyM",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.5549450549450549,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "Og5xAdC8EUI",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.410958904109589,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "9-XoM2144tk",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.2724795640326976,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "oT5pDvdMzhk",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.387434554973822,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "h2rR77VsF5c",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4301075268817204,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "GkxrJSTLH_s",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3535108958837772,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "EKEWk4oWmjY",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.2979797979797979,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "znnp-Ivj2ek",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3494623655913978,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "CNbnLgetqHs",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3923705722070845,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "fKO6vW-_Xvg",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.484375,
+      "bertscore": 0.8539250493049622
+    },
+    {
+      "video_id": "RPQD7-AOjMI",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.2636363636363636,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "j3mhkYbznBk",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3362831858407079,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "f7oXhDatwtY",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3723404255319149,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "W74y1RxN6BA",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3848238482384823,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "OwAk01PbCYI",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.435064935064935,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "ETHIttnLqG8",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5222222222222223,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "cOIJGGgaSIY",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3088803088803089,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "AwaVPJJEjAQ",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3290488431876607,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "LBUFrBHAjcs",
+      "domain": "engineering",
+      "categories": [
+        "academic_framing",
+        "citation_artifacts"
+      ],
+      "rouge1": 0.0385674931129476,
+      "bertscore": 0.8396312594413757,
+      "examples": [
+        [
+          "this",
+          "paper"
+        ],
+        [
+          "this",
+          "paper"
+        ],
+        "et al."
+      ]
+    },
+    {
+      "video_id": "jGwO_UgTS7I",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3358395989974937,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "6M5VXKLf4D4",
+      "domain": "engineering",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.4009779951100245,
+      "bertscore": 0.8396312594413757,
+      "examples": [
+        [
+          "this",
+          "article"
+        ]
+      ]
+    },
+    {
+      "video_id": "Fi3_BjVzpqk",
+      "domain": "engineering",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.4390243902439024,
+      "bertscore": 0.8396312594413757,
+      "examples": [
+        [
+          "this",
+          "article"
+        ]
+      ]
+    },
+    {
+      "video_id": "ZAqIoDhornk",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3309352517985611,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "ibaqq-smj5g",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3439153439153439,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "H7q7ArJ5lXY",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3350785340314136,
+      "bertscore": 0.8396312594413757
+    },
+    {
+      "video_id": "EjaGktVQdNg",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.144578313253012,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "ZihywtixUYo",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.3902439024390243,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "klpDHn8viX8",
+      "domain": "scientific",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.4411027568922305,
+      "bertscore": 0.8477981090545654,
+      "examples": [
+        [
+          "the",
+          "study"
+        ]
+      ]
+    },
+    {
+      "video_id": "qj7HH0PCqIE",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.460048426150121,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "5NU2t5zlxQQ",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4339152119700747,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "DfY-DRsE86s",
+      "domain": "scientific",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.3959390862944162,
+      "bertscore": 0.8477981090545654,
+      "examples": [
+        [
+          "the",
+          "study"
+        ],
+        [
+          "the",
+          "study"
+        ]
+      ]
+    },
+    {
+      "video_id": "p7bzE1E5PMY",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.5958549222797926,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "zNVQfWC_evg",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.406392694063927,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "PWNMWrTTBfk",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4128686327077748,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "iUjVnV5FsYo",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.0,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "CGHSHyjTJCI",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.2912621359223301,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "XRr1kaXKBsU",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.5123966942148761,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "6akmv1bsz1M",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4194373401534527,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "pGsbEd6w7PI",
+      "domain": "scientific",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.5126903553299492,
+      "bertscore": 0.8477981090545654,
+      "examples": [
+        [
+          "this",
+          "article"
+        ]
+      ]
+    },
+    {
+      "video_id": "qrvK_KuIeJk",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.3532219570405728,
+      "bertscore": 0.8477981090545654
+    },
+    {
+      "video_id": "3v_vh9auQqA",
+      "domain": "scientific",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.4373464373464373,
+      "bertscore": 0.8477981090545654,
+      "examples": [
+        [
+          "this",
+          "article"
+        ]
+      ]
+    },
+    {
+      "video_id": "RW2DPHAoXiQ",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.3351063829787233,
+      "bertscore": 0.8477981090545654
+    }
+  ],
+  "base_errors": [
+    {
+      "video_id": "uOcpsXMJcJk",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4225352112676056,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "jP0qT6GpBVY",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.5374149659863946,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "7D-gxaie6UI",
+      "domain": "medical",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.4107142857142857,
+      "bertscore": 0.8840793371200562,
+      "examples": [
+        "author"
+      ]
+    },
+    {
+      "video_id": "JNTOahIeCfA",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.5083333333333333,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "e06y0rZ1-Ws",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4372759856630824,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "yQ6VOOd73MA",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3984674329501916,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "HUP9nQdpUyM",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.5577464788732394,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "Og5xAdC8EUI",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.6318681318681318,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "9-XoM2144tk",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4028268551236749,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "oT5pDvdMzhk",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4217252396166134,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "h2rR77VsF5c",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.486322188449848,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "GkxrJSTLH_s",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3986710963455149,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "EKEWk4oWmjY",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4874551971326165,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "znnp-Ivj2ek",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.3986486486486486,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "CNbnLgetqHs",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.4271186440677966,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "fKO6vW-_Xvg",
+      "domain": "medical",
+      "categories": [],
+      "rouge1": 0.5808383233532934,
+      "bertscore": 0.8840793371200562
+    },
+    {
+      "video_id": "RPQD7-AOjMI",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5139318885448917,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "j3mhkYbznBk",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.4666666666666666,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "f7oXhDatwtY",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5051903114186851,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "W74y1RxN6BA",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5519713261648745,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "OwAk01PbCYI",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.4252491694352159,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "ETHIttnLqG8",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5253164556962026,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "cOIJGGgaSIY",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.4027777777777778,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "AwaVPJJEjAQ",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3384615384615385,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "LBUFrBHAjcs",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.0061538461538461,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "jGwO_UgTS7I",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.3897058823529412,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "6M5VXKLf4D4",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.4584717607973422,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "Fi3_BjVzpqk",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.4846416382252559,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "ZAqIoDhornk",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.4595300261096605,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "ibaqq-smj5g",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5618729096989967,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "H7q7ArJ5lXY",
+      "domain": "engineering",
+      "categories": [],
+      "rouge1": 0.5098039215686274,
+      "bertscore": 0.8736822009086609
+    },
+    {
+      "video_id": "EjaGktVQdNg",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.3862660944206008,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "ZihywtixUYo",
+      "domain": "scientific",
+      "categories": [
+        "academic_framing"
+      ],
+      "rouge1": 0.5597269624573379,
+      "bertscore": 0.8806588649749756,
+      "examples": [
+        [
+          "the",
+          "study"
+        ],
+        [
+          "the",
+          "study"
+        ]
+      ]
+    },
+    {
+      "video_id": "klpDHn8viX8",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4485981308411215,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "qj7HH0PCqIE",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.5314685314685315,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "5NU2t5zlxQQ",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.5480427046263345,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "DfY-DRsE86s",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4615384615384615,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "p7bzE1E5PMY",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.6392961876832844,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "zNVQfWC_evg",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4347826086956521,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "PWNMWrTTBfk",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.5140845070422535,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "iUjVnV5FsYo",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.017391304347826,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "CGHSHyjTJCI",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4280155642023346,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "XRr1kaXKBsU",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4709302325581395,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "6akmv1bsz1M",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4624624624624624,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "pGsbEd6w7PI",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.4758842443729904,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "qrvK_KuIeJk",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.5073746312684365,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "3v_vh9auQqA",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.3754512635379061,
+      "bertscore": 0.8806588649749756
+    },
+    {
+      "video_id": "RW2DPHAoXiQ",
+      "domain": "scientific",
+      "categories": [],
+      "rouge1": 0.3734439834024896,
+      "bertscore": 0.8806588649749756
+    }
+  ],
+  "lora_statistics": {
+    "academic_framing": 7,
+    "citation_artifacts": 1
+  },
+  "base_statistics": {
+    "academic_framing": 2,
+    "citation_artifacts": 0
+  }
+}

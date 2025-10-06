@@ -1,61 +1,154 @@
-# Python
-__pycache__/
-*.py[cod]
-*.ipynb_checkpoints
+# ============================================================================
+# LARGE FILES - DO NOT UPLOAD TO GITHUB
+# ============================================================================
 
-# Envs & IDE
-.venv/
-venv/
-venv_lora/
-.env
-.idea/
-.vscode/
-.DS_Store
-
-# App/runtime - EXPANDED
-data/audio/
-data/transcripts/
-outputs/
-outputs/runs/
-.streamlit/
-transcripts/
-audio/
-
-# Caches & models
-cache/
-.hf_cache/
-hub/
-.whisper/
-*.bin
-*.pt
-*.safetensors
-
-# LoRA-specific
-models/adapters/*/adapter_model.bin
-models/adapters/*/pytorch_model.bin
+# Models (large binary files)
 models/adapters/*/*.safetensors
-*.pth
-wandb/
-runs/
-checkpoints/
+models/adapters/*/*.bin
+models/adapters/*/*.pth
+models/adapters/*/pytorch_model.bin
+models/adapters/*/model.safetensors
+*.ckpt
+*.h5
+*.onnx
 
-# Evaluation outputs
-evaluation_results/
-evals/
-
-# Embedded repos
-data/ms2_raw/
-
-# Keep configs
-!models/adapters/*/adapter_config.json
-!models/adapters/*/config.json
-
-# Large training datasets (regenerate with prep scripts)
+# Training datasets (regenerate from scripts)
 data/engineering/engineering.jsonl
 data/scientific/scientific.jsonl
 data/scientific/arxiv.jsonl
 data/scientific/pubmed.jsonl
 data/general/cnn.jsonl
+data/medical/medical.jsonl
 
-# OS / misc
+# Audio/video files
+data/audio/
+data/videos/
+*.wav
+*.mp3
+*.mp4
+*.avi
+
+# Transcripts (generated from audio)
+data/transcripts/
+transcripts/
+
+# Keep small sample data for testing
+!data/*/sample_*.jsonl
+
+# ============================================================================
+# MODEL CONFIGS - KEEP THESE (small, important)
+# ============================================================================
+!models/adapters/*/adapter_config.json
+!models/adapters/*/config.json
+!models/adapters/*/training_args.bin
+!models/adapters/*/README.md
+
+# ============================================================================
+# PAPER FOLDER - LATEX BUILD ARTIFACTS
+# ============================================================================
+
+# Generated PDFs (build locally)
+paper/*.pdf
+
+# LaTeX auxiliary files
+paper/*.aux
+paper/*.log
+paper/*.bbl
+paper/*.blg
+paper/*.toc
+paper/*.out
+paper/*.synctex.gz
+paper/*.fdb_latexmk
+paper/*.fls
+paper/*.lof
+paper/*.lot
+paper/*.gz
+paper/*.nav
+paper/*.snm
+paper/*.vrb
+
+# Keep LaTeX source and bibliography
+!paper/*.tex
+!paper/*.bib
+
+# Figures - IMPORTANT DECISION NEEDED
+# Option A: Keep figures in repo (recommended for reproducibility)
+!paper/figures/*.png
+!paper/figures/*.jpg
+!paper/figures/*.pdf
+# Option B: Ignore generated figures (uncomment if figures are programmatically generated)
+# paper/figures/
+
+# ============================================================================
+# PYTHON ENVIRONMENT
+# ============================================================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.ipynb_checkpoints
+
+# Virtual environments
+.venv/
+venv/
+venv_lora/
+venv_train/
+env/
+ENV/
+
+# ============================================================================
+# CACHES & TEMPORARY FILES
+# ============================================================================
+
+# Hugging Face cache
+cache/
+.hf_cache/
+hub/
+.cache/
+
+# Whisper cache
+.whisper/
+
+# Training logs and checkpoints
+wandb/
+runs/
+checkpoints/
+lightning_logs/
+
+# Evaluation outputs
+evaluation_results/
+evals/
+outputs/
+outputs/runs/
+
+# ============================================================================
+# IDE & OS
+# ============================================================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
 Thumbs.db
+
+# ============================================================================
+# SECRETS & CREDENTIALS
+# ============================================================================
+.env
+*.key
+*.pem
+secrets/
+
+# ============================================================================
+# EMBEDDED/CLONED REPOS
+# ============================================================================
+data/ms2_raw/
+
+# ============================================================================
+# MISC
+# ============================================================================
+.streamlit/
+*.bak
+*.tmp

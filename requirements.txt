@@ -1,35 +1,134 @@
-# ---- Core ML stack ----
-torch==2.2.2                     # Use pip/conda CUDA build manually (latest stable Feb 2025)
-transformers==4.45.2             # Stable HuggingFace release
-accelerate>=0.33.0               # Device placement & model sharding
-safetensors>=0.4.3               # Safe model serialization
-sentencepiece>=0.2.0             # Required for many HuggingFace models
-huggingface_hub>=0.23.0
+# ============================================================================
+# REQUIREMENTS.txt - LoRA Video Summarization Project
+# Python 3.10+ required
+# 
+# INSTALLATION NOTES:
+# - Windows users: Install WSL2 + Ubuntu for GPU support (bitsandbytes requires Linux)
+# - For <8GB VRAM: Must use WSL2 or Linux native
+# - Mac users: CPU-only mode supported, no quantization
+# ============================================================================
 
-# Optional 8-bit GPU quantization (Linux/macOS only; bnb not fully supported on Windows)
-bitsandbytes>=0.43.1; platform_system != "Windows"
+# ---- Core ML Stack ----
+torch==2.2.2                     # PyTorch with CUDA 12.1 (install from pytorch.org)
+transformers==4.45.2             # Stable HuggingFace (Dec 2024)
+accelerate>=0.33.0               # Multi-GPU & device mapping
+safetensors>=0.4.3               # Fast model serialization
+sentencepiece>=0.2.0             # Tokenizer backend
+huggingface_hub>=0.23.0          # Model downloading
 
-# ---- Summarization / tokenization helpers ----
-blingfire==0.1.8                 # Fast sentence segmentation
+# ---- GPU Quantization (Linux/WSL2 ONLY) ----
+# CRITICAL: bitsandbytes does NOT work on native Windows
+# Windows users MUST use WSL2 Ubuntu for 4-bit/8-bit quantization
+bitsandbytes>=0.43.1; platform_system != "Windows" and platform_system != "Darwin"
+
+# ---- LoRA Fine-tuning ----
+peft>=0.11.0                     # Parameter-efficient fine-tuning
+trl>=0.8.0                       # SFTTrainer for supervised fine-tuning (optional)
 
 # ---- ASR (Whisper) ----
-faster-whisper>=1.0.0             # CTranslate2 backend (GPU/CPU)
-openai-whisper>=20231117          # Torch-based fallback Whisper
+openai-whisper>=20231117         # Primary Whisper backend (PyTorch)
+faster-whisper>=1.0.0            # Fallback backend (CTranslate2, faster inference)
 
-# ---- Audio / media ----
-numpy<2.0                         # Safe with librosa/soundfile
-librosa==0.10.2.post1             # Latest stable (Jan 2025)
-soundfile>=0.12.1                 # For audio I/O
-yt-dlp>=2025.8.11                 # Keep updated for YouTube changes
+# ---- Audio Processing ----
+numpy<2.0                        # Compatibility with audio libs
+librosa==0.10.2.post1            # Audio feature extraction
+soundfile>=0.12.1                # WAV I/O
+yt-dlp>=2024.8.11                # YouTube audio download (keep updated)
 
-# ---- App / utils ----
-streamlit==1.38.0                 # Stable, avoids experimental regressions
-python-docx>=0.8.11               # DOCX export
-PyYAML==6.0.2                     # Config parsing
-pynvml>=11.5.0; platform_system != "Darwin"   # GPU VRAM stats (skip on Mac)
+# ---- Evaluation Metrics ----
+rouge-score>=0.1.2               # ROUGE-1/2/L metrics
+bert-score>=0.3.13               # BERTScore semantic similarity
+scipy>=1.11.0                    # Statistical tests (t-tests, Cohen's d)
 
-# ---- Optional extras for domain awareness & factuality ----
-scikit-learn>=1.5.0               # TF-IDF, clustering
-keybert>=0.8.3                    # Keyword extraction (optional)
-yake>=0.4.8                       # Lightweight keyword extractor (optional)
-sentence-transformers>=2.7.0      # For semantic reranking & factuality scoring
+# ---- NLP Utilities ----
+sentence-transformers>=2.7.0     # Semantic embeddings (BERTScore backend)
+blingfire==0.1.8                 # Fast sentence tokenization
+scikit-learn>=1.5.0              # TF-IDF, clustering
+
+# ---- Optional: Keyword Extraction ----
+keybert>=0.8.3                   # Transformer-based keywords (optional)
+yake>=0.4.8                      # Statistical keyword extraction (optional)
+
+# ---- Data Processing ----
+pandas>=2.0.0                    # CSV/dataframe operations
+datasets>=2.14.0                 # HuggingFace dataset loading
+tqdm>=4.66.0                     # Progress bars
+
+# ---- Visualization ----
+matplotlib>=3.7.0                # Plotting (loss curves, bar charts)
+seaborn>=0.12.0                  # Statistical plots (optional)
+
+# ---- Application UI (Optional) ----
+streamlit==1.38.0                # Web interface (if using GUI)
+python-docx>=0.8.11              # DOCX export
+
+# ---- Configuration & Logging ----
+PyYAML==6.0.2                    # Config file parsing
+wandb>=0.15.0                    # Training tracking (optional, Colab compatible)
+
+# ---- System Monitoring ----
+pynvml>=11.5.0; platform_system != "Darwin"   # GPU VRAM monitoring (skip Mac)
+psutil>=5.9.0                    # CPU/RAM monitoring
+
+# ============================================================================
+# INSTALLATION INSTRUCTIONS
+# ============================================================================
+#
+# OPTION 1: Native Linux / WSL2 (RECOMMENDED for <8GB VRAM)
+# ---------------------------------------------------------
+# 1. Install WSL2 + Ubuntu 22.04 on Windows:
+#    wsl --install -d Ubuntu-22.04
+# 2. Install CUDA Toolkit in WSL2:
+#    wget https://developer.download.nvidia.com/compute/cuda/repos/wsl-ubuntu/x86_64/cuda-keyring_1.1-1_all.deb
+#    sudo dpkg -i cuda-keyring_1.1-1_all.deb
+#    sudo apt update && sudo apt install cuda-toolkit-12-1
+# 3. Install PyTorch with CUDA:
+#    pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
+# 4. Install remaining requirements:
+#    pip install -r requirements.txt
+#
+# OPTION 2: Windows Native (CPU-only or >12GB VRAM GPUs)
+# -------------------------------------------------------
+# WARNING: bitsandbytes unavailable, quantization disabled
+# pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
+# pip install -r requirements.txt
+#
+# OPTION 3: macOS (CPU-only)
+# ---------------------------
+# pip install torch==2.2.2
+# pip install -r requirements.txt
+#
+# OPTION 4: Google Colab (Training)
+# ----------------------------------
+# Colab pre-installs PyTorch. Just run:
+# !pip install peft trl bitsandbytes transformers accelerate datasets
+#
+# ============================================================================
+# MEMORY REQUIREMENTS
+# ============================================================================
+#
+# Training (LoRA):
+#   - 16GB VRAM: Full fp16 training (Google Colab T4)
+#   - 8GB VRAM:  Not supported, use Colab
+#
+# Inference (Summarization):
+#   - 8GB VRAM:  4-bit quantization (requires WSL2 on Windows)
+#   - 6GB VRAM:  4-bit + aggressive offloading
+#   - <6GB:      CPU-only mode (10x slower)
+#
+# System RAM: 16GB minimum, 32GB recommended
+#
+# ============================================================================
+# VERIFICATION
+# ============================================================================
+#
+# Test GPU availability:
+#   python -c "import torch; print(f'CUDA: {torch.cuda.is_available()}')"
+#
+# Test bitsandbytes (Linux/WSL2 only):
+#   python -c "import bitsandbytes as bnb; print('BNB OK')"
+#
+# Test VRAM:
+#   python -c "import torch; print(f'{torch.cuda.get_device_properties(0).total_memory/1e9:.1f}GB')"
+#
+# ============================================================================
