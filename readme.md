@@ -355,9 +355,10 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 
 ## Contact
 
-**Tushar Jaju** – tushar@example.com  
+**Tushar Jaju** – tusharbrisingr9802@gmail.com  
 **Project Link:** [https://github.com/Tushar-9802/YouTube-Transcript-Summarizer](https://github.com/Tushar-9802/YouTube-Transcript-Summarizer)  
 ---
 
 _Last Updated: October 2025_  
 _Status: Research Complete | GUI Functional_  
+
