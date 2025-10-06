@@ -298,8 +298,9 @@ Training requires **16GB VRAM** (Google Colab T4 recommended). Local training on
 
 | Configuration      | VRAM    | Throughput                | Notes                  |
 |--------------------|---------|---------------------------|------------------------|
-| 4-bit Quantized    | 6–7GB   | 15-min video → 4 min      | RTX 3060/4070          |
-| 8-bit Quantized    | 10–12GB | 15-min video → 3 min      | RTX 3080/4080          |
+| 4-bit Quantized    | 6–8GB   | 15-min video → 4 min      | RTX 3060/4070          |
+| 8-bit Quantized    | 10-12GB | 15-min video → 2.5-3 min  | RTX 3080/4080          |
+| No Quantisation    | 16 GB+  | 15-min Video → Probably 1-1.5 min (Untested) | RTX 4080 Super/ 4090|
 | CPU-only           | N/A     | 15-min video → 40 min     | 16-core+ recommended   |
 
 ---
@@ -361,4 +362,5 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 
 _Last Updated: October 2025_  
 _Status: Research Complete | GUI Functional_  
+
 
