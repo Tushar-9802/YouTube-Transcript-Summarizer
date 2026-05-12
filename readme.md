@@ -23,6 +23,7 @@ This repository implements and analyzes **"When Academic Training Fails: Cross-M
 - **Consumer GPU pipeline:** Enables 7B parameter inference in 6.2GB VRAM via 4-bit quantization
 - **Remediation strategies:** Four approaches with implementation details and expected gains
 
+## Status: Accepted and presented at IMPACT 2025 (December 2025). Springer proceedings forthcoming — DOI will be added when assigned.
 ---
 
 ## Table of Contents
