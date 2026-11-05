@@ -10,20 +10,32 @@
 
 ## Overview
 
-This repository implements and analyzes **"When Academic Training Fails: Cross-Modal Transfer Learning in Domain-Adaptive Video Summarization"**. It investigates whether domain-specific LoRA adapters trained on academic papers improve YouTube video summarization.
+This repository implements and analyzes **"Cross-Modal Transfer Learning in Domain-Adaptive Video Summarization"**. It investigates whether domain-specific LoRA adapters trained on academic papers improve YouTube video summarization.
 
-**Key Finding:** Domain-specific training on 25,000 papers **degraded** video summarization performance by 14–50% (p<0.001), showing that **data modality outweighs domain similarity** when discourse structures diverge.
+**Key Finding:** LoRA adapters trained on 1,800 academic documents per domain scored **below the base model** on 48 YouTube videos (ROUGE-1 −14 to −22%, ROUGE-2 −37 to −50%, p<0.01). Domain similarity alone was not sufficient for transfer. The cause of the degradation is an open question.
 
-> **Note:** The Streamlit GUI (`scripts/app.py`) uses the base **4-bit quantized Mistral-7B-Instruct-v0.2** model for general-purpose video summarization. LoRA adapters are **not** loaded in the GUI, as research showed they harm video performance. For LoRA experiments, use command-line scripts.
+> **Note:** The Streamlit GUI (`scripts/app.py`) uses the base **4-bit quantized Mistral-7B-Instruct-v0.2** model for general-purpose video summarization. LoRA adapters are **not** loaded in the GUI, because they lowered video summarization scores in this study. For LoRA experiments, use command-line scripts.
 
 ### Contributions
 
-- **Rigorous negative result:** Adapters work on papers (+6–8% ROUGE) but fail on videos
-- **Automated error taxonomy:** Quantifies failure modes (14.6% academic framing, 54% style mismatch)
-- **Consumer GPU pipeline:** Enables 7B parameter inference in 6.2GB VRAM via 4-bit quantization
-- **Remediation strategies:** Four approaches with implementation details and expected gains
+- **Negative result:** Adapters scored below the base model on video summarization
+- **Failure analysis:** Repetitive output (9/48 vs 1/48), academic framing (7/48 vs 2/48), and a null result on passive voice
+- **Consumer GPU pipeline:** 7B parameter inference in 6.2GB VRAM via 4-bit quantization
+- **Candidate remedies:** Four strategies, none tested here
 
-## Status: Accepted and presented at IMPACT 2025 (December 2025). Springer proceedings forthcoming — DOI will be added when assigned.
+## Status: Presented at IMPACT 2025 (December 2025). Springer proceedings in production, DOI will be added when assigned.
+
+## Corrections
+
+The results in this README were corrected in November 2026 after an audit against the recorded experiments. Earlier versions reported values and analyses that did not match the saved outputs.
+
+- Table values are now recomputed from `evaluation/results/evaluation/detailed_results.csv` by `evaluation/scripts/recompute_chapter_tables.py`, with results in `evaluation/results/recomputed.json`.
+- The paper-abstract validation table was removed. No recorded run supports it.
+- The passive-voice, nominalization, and perplexity results were re-run on the saved summaries. Passive voice did not change between models.
+- Training used 1,800 documents per domain, not 25,000 papers. References came from `gpt-4o-mini`. Test transcripts came from Whisper small.
+- BERTScore in `detailed_results.csv` is a group mean repeated on each row, kept as recorded. Per-video values are in the recompute script, and `evaluate_robust.py` now stores them.
+- Four test transcripts are failed ASR outputs and are kept as recorded: `j3mhkYbznBk`, `LBUFrBHAjcs`, `EjaGktVQdNg`, `iUjVnV5FsYo`.
+
 ---
 
 ## Table of Contents
@@ -76,8 +88,8 @@ sudo dpkg -i cuda-keyring_1.1-1_all.deb
 sudo apt update && sudo apt install cuda-toolkit-12-1
 
 # Clone repository
-git clone https://github.com/[your-username]/yt-lora-summarization.git
-cd yt-lora-summarization
+git clone https://github.com/Tushar-9802/YouTube-Transcript-Summarizer.git
+cd YouTube-Transcript-Summarizer
 
 # Create virtual environment
 python3 -m venv .venv
@@ -96,8 +108,8 @@ python -c "import torch, peft, bitsandbytes; print(f'CUDA: {torch.cuda.is_availa
 ### Option 2: Native Linux
 
 ```bash
-git clone https://github.com/[your-username]/yt-lora-summarization.git
-cd yt-lora-summarization
+git clone https://github.com/Tushar-9802/YouTube-Transcript-Summarizer.git
+cd YouTube-Transcript-Summarizer
 python3 -m venv .venv
 source .venv/bin/activate
 pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
@@ -109,8 +121,8 @@ pip install -r requirements.txt
 > **Warning:** Quantization disabled on Windows. Requires 12GB+ VRAM or runs CPU-only (10–15× slower).
 
 ```bash
-git clone https://github.com/[your-username]/yt-lora-summarization.git
-cd yt-lora-summarization
+git clone https://github.com/Tushar-9802/YouTube-Transcript-Summarizer.git
+cd YouTube-Transcript-Summarizer
 python -m venv .venv
 .venv\Scripts\activate
 pip install torch==2.2.2 --index-url https://download.pytorch.org/whl/cu121
@@ -120,8 +132,8 @@ pip install -r requirements.txt
 ### Option 4: macOS (CPU-only)
 
 ```bash
-git clone https://github.com/[your-username]/yt-lora-summarization.git
-cd yt-lora-summarization
+git clone https://github.com/Tushar-9802/YouTube-Transcript-Summarizer.git
+cd YouTube-Transcript-Summarizer
 python3 -m venv .venv
 source .venv/bin/activate
 pip install torch==2.2.2
@@ -131,8 +143,8 @@ pip install -r requirements.txt
 ### Option 5: Google Colab (Training Only)
 
 ```python
-!git clone https://github.com/[your-username]/yt-lora-summarization.git
-%cd yt-lora-summarization
+!git clone https://github.com/Tushar-9802/YouTube-Transcript-Summarizer.git
+%cd YouTube-Transcript-Summarizer
 !pip install peft trl bitsandbytes transformers accelerate datasets
 ```
 
@@ -176,92 +188,69 @@ Open browser at [http://localhost:8501](http://localhost:8501), paste YouTube UR
 - 4-bit quantized inference (6–7GB VRAM)
 - Export to TXT/Markdown/DOCX
 
-### Option 2: Command-Line (Research/LoRA Experiments)
+### Option 2: Research Scripts
 
-**A) Base Model (Recommended for Videos):**
+Evaluation scripts run from `evaluation/` with the repository root on the Python path:
+
 ```bash
-python scripts/process_youtube.py \
-    --url "https://www.youtube.com/watch?v=VIDEO_ID" \
-    --output results/summaries/
+cd evaluation
+PYTHONPATH=.. python scripts/evaluate_robust.py
 ```
 
-**B) With LoRA Adapter (Research Only – Degrades Performance):**
+Recompute the reported tables from saved outputs, from the repository root:
+
 ```bash
-python scripts/process_youtube.py \
-    --url "https://www.youtube.com/watch?v=VIDEO_ID" \
-    --domain medical \
-    --adapter-path models/adapters/medical/ \
-    --output results/summaries/
+python evaluation/scripts/recompute_chapter_tables.py . evaluation/results/recomputed.json
+python scripts/generate_figures.py
 ```
 
-> ⚠️ **Research Finding:** LoRA adapters reduce quality by 14–50%. Use only for replication experiments.
+The recompute script needs `spacy` with `en_core_web_sm`, which is not in `requirements.txt`.
+
+> **Finding:** LoRA adapters lowered video summarization scores in this study. Use them only for replication experiments.
 
 ---
 
 ## Project Structure
 
 ```
-yt-lora-summarization/
-├── src/
-│   └── yt_sum/
-│       ├── models/
-│       │   ├── summarizer.py              # Base model inference
-│       │   └── summarizer_lora.py         # LoRA adapter integration
-│       ├── training/
-│       │   ├── train_lora_colab.py        # Google Colab training script
-│       │   └── evaluate_lora.py           # Evaluation framework
-│       └── utils/
-│           ├── chunker.py                 # Text chunking utilities
-│           └── logging.py                 # Logging configuration
+YouTube-Transcript-Summarizer/
+├── src/yt_sum/
+│   ├── models/                            # Summarizer, LoRA summarizer, transcriber
+│   ├── training/                          # Colab training script and dataset prep
+│   ├── utils/                             # ASR, chunking, keywords, config, logging
+│   └── pipeline.py                        # End-to-end pipeline
 ├── scripts/
 │   ├── app.py                             # Streamlit GUI (base model only)
-│   ├── process_youtube.py                 # CLI: Video download + transcription
-│   ├── error_analysis.py                  # Failure mode analysis
-│   ├── generate_paper_figures.py          # Create publication figures
-│   └── verify_adapters.py                 # Adapter validation tests
-├── data/
-│   ├── medical/                           # Medical papers (PubMed)
-│   ├── engineering/                       # Engineering papers (arXiv)
-│   ├── scientific/                        # Scientific papers (arXiv)
-│   └── youtube_test/                      # Test video transcripts
-├── models/
-│   └── adapters/                          # LoRA adapters
-├── results/
-│   ├── evaluation/                        # Evaluation outputs
-│   └── error_analysis/                    # Error categorization
-├── paper/
-│   ├── main.tex                           # LaTeX manuscript
-│   └── figures/                           # Generated figures
-├── requirements.txt                       # Python dependencies
-├── .gitignore                             # Git ignore rules
-└── README.md                              # This file
+│   └── generate_figures.py                # Figures from recomputed results
+├── evaluation/
+│   ├── data/youtube_test/                 # 48 test videos with transcripts and references
+│   ├── models/adapters/                   # LoRA adapters and training logs
+│   ├── results/                           # Recorded outputs and recomputed tables
+│   └── scripts/                           # Evaluation, analysis, and recompute scripts
+├── configs/default.yaml
+├── requirements.txt
+├── LICENSE
+└── readme.md
 ```
 
 ---
 
 ## Training LoRA Adapters
 
-Training requires **16GB VRAM** (Google Colab T4 recommended). Local training on 8GB GPUs is not supported.
+Training requires **16GB VRAM** (Google Colab T4). Local training on 8GB GPUs is not supported.
 
-```python
-# In Colab notebook
-!pip install peft trl bitsandbytes transformers accelerate datasets
+Run `src/yt_sum/training/training_lora_colab.py` in Colab. Set `DOMAIN` at the top of the script and upload `{DOMAIN}.jsonl`. Each adapter took about 57–59 minutes.
 
-# Train medical adapter (60–75 minutes)
-!python train_lora_colab.py \
-    --domain medical \
-    --data-path data/medical/medical.jsonl \
-    --output-dir models/adapters/medical/ \
-    --max-samples 10000
-```
-
-**Training Configuration:**
+**Training Configuration (from saved adapters and logs):**
 - Base Model: Mistral-7B-Instruct-v0.2
-- LoRA Rank: r=16, α=32
-- Quantization: 4-bit NF4
-- Batch Size: 16 (effective, 4×4 accumulation)
-- Epochs: 3
-- Learning Rate: 2×10⁻⁴ with cosine decay
+- LoRA: r=16, α=32, dropout 0.05, target modules q_proj and v_proj (6,815,744 trainable parameters)
+- Quantization: 4-bit NF4 with double quantization, float16 compute
+- Data: 2,000 sampled documents per domain, 1,800 for training and 200 held out
+- Batch Size: 8 (effective, 2×4 accumulation), sequence length 512
+- Epochs: 1 (225 steps)
+- Learning Rate: 2×10⁻⁴ with linear decay, paged 8-bit AdamW
+
+The training JSONL files are not in this repository, so exact retraining is not possible from the repository alone. Medical data came from MS^2, and engineering and scientific data came from arXiv.
 
 ---
 
@@ -269,29 +258,40 @@ Training requires **16GB VRAM** (Google Colab T4 recommended). Local training on
 
 ### Quantitative Performance
 
-| Domain      | Metric      | Base | LoRA | Change | p-value | Cohen's d |
-|-------------|-------------|------|------|--------|---------|-----------|
-| Medical     | ROUGE-1     | 0.341|0.283 | -17%   | <0.001  | 0.65      |
-|             | ROUGE-2     | 0.118|0.066 | -44%   | <0.001  | 1.37      |
-|             | BERTScore   | 0.881|0.851 | -3.4%  | <0.001  | 1.50      |
-| Engineering | ROUGE-1     | 0.347|0.272 | -22%   | <0.001  | 0.81      |
-|             | ROUGE-2     | 0.120|0.060 | -50%   | <0.001  | 1.58      |
-|             | BERTScore   | 0.879|0.845 | -3.9%  | <0.001  | 1.70      |
-| Scientific  | ROUGE-1     | 0.336|0.288 | -14%   | <0.001  | 0.50      |
-|             | ROUGE-2     | 0.115|0.073 | -37%   | <0.001  | 1.11      |
-|             | BERTScore   | 0.877|0.845 | -3.7%  | <0.001  | 1.60      |
+Paired t-tests on 48 videos (16 medical, 15 engineering, 17 scientific). References are `gpt-4o-mini` summaries.
 
-### Adapter Validation (Papers)
+| Domain | Metric | Base | LoRA | Change | p-value | Cohen's d |
+|---|---|---|---|---|---|---|
+| Medical     | ROUGE-1   | 0.469 | 0.390 | -17% | <0.001 | 1.06 |
+|             | ROUGE-2   | 0.167 | 0.094 | -44% | <0.001 | 1.10 |
+|             | ROUGE-L   | 0.270 | 0.200 | -26% | <0.001 | 1.14 |
+|             | BERTScore | 0.885 | 0.854 | -3.4% | <0.001 | 2.02 |
+| Engineering | ROUGE-1   | 0.440 | 0.345 | -22% | <0.001 | 0.78 |
+|             | ROUGE-2   | 0.181 | 0.090 | -50% | <0.001 | 1.29 |
+|             | ROUGE-L   | 0.264 | 0.204 | -23% | 0.006 | 0.75 |
+|             | BERTScore | 0.874 | 0.840 | -3.9% | <0.001 | 0.72 |
+| Scientific  | ROUGE-1   | 0.449 | 0.385 | -14% | 0.005 | 0.47 |
+|             | ROUGE-2   | 0.183 | 0.116 | -37% | <0.001 | 0.91 |
+|             | ROUGE-L   | 0.268 | 0.206 | -23% | <0.001 | 0.79 |
+|             | BERTScore | 0.881 | 0.848 | -3.7% | <0.001 | 0.77 |
 
-| Domain      | Base ROUGE-1 | LoRA ROUGE-1 | Improvement |
-|-------------|--------------|--------------|-------------|
-| Medical     | 0.341        | 0.369        | +8.2%*      |
-| Engineering | 0.312        | 0.333        | +6.7%       |
-| Scientific  | 0.328        | 0.351        | +7.0%       |
+ROUGE-1 decreased on 42 of 48 videos. Excluding failed transcripts and repetitive outputs (n=37) gave declines of 13.8% (ROUGE-1), 38.0% (ROUGE-2), and 22.8% (ROUGE-L), all p<0.001.
 
-\*p<0.01, **p<0.001
+### Failure Analysis
 
-**Key Finding:** Adapters improve paper summarization but degrade video summarization, confirming modality mismatch as the root cause.
+| Metric | Base | LoRA | p-value |
+|---|---|---|---|
+| Passive voice (% of sentences) | 25.3 | 24.4 | 0.84 |
+| Nominalization (% of nouns) | 18.9 | 14.6 | 0.006 |
+| Perplexity (GPT-2) | 22.0 | 14.2 | <0.001 |
+| Unigram overlap (%) | 62.8 | 51.4 | <0.001 |
+| Bigram overlap (%) | 23.5 | 12.6 | <0.001 |
+| Mean length (words, reference 179) | 112 | 194 | |
+| Repetitive outputs | 1/48 | 9/48 | |
+| Academic framing | 2/48 | 7/48 | |
+| Citation artifacts | 0/48 | 1/48 | |
+
+Repetition lowers perplexity, so the lower LoRA value does not indicate better fluency. No quantitative source-domain validation was completed, so training-related causes cannot be fully excluded.
 
 ---
 
@@ -301,7 +301,6 @@ Training requires **16GB VRAM** (Google Colab T4 recommended). Local training on
 |--------------------|---------|---------------------------|------------------------|
 | 4-bit Quantized    | 6–8GB   | 15-min video → 4 min      | RTX 3060/4070          |
 | 8-bit Quantized    | 10-12GB | 15-min video → 2.5-3 min  | RTX 3080/4080          |
-| No Quantisation    | 16 GB+  | 15-min Video → Probably 1-1.5 min (Untested) | RTX 4080 Super/ 4090|
 | CPU-only           | N/A     | 15-min video → 40 min     | 16-core+ recommended   |
 
 ---
@@ -309,11 +308,7 @@ Training requires **16GB VRAM** (Google Colab T4 recommended). Local training on
 ## Troubleshooting
 
 - **Issue:** "CUDA out of memory"  
-    **Solution:** Reduce sequence length or enable CPU offloading  
-    ```python
-    # In summarizer.py
-    MAX_SEQ_LENGTH = 768  # default: 1024
-    ```
+    **Solution:** Close other GPU applications, use a smaller Whisper model, or use CPU offloading.
 
 - **Issue:** "bitsandbytes not available"  
     **Cause:** Running on Windows native or macOS.  
@@ -327,7 +322,7 @@ Training requires **16GB VRAM** (Google Colab T4 recommended). Local training on
 ## FAQ
 
 **Q:** Why doesn't the GUI use LoRA adapters?  
-**A:** Research showed LoRA adapters degrade video quality by 14–50%. The GUI uses the base quantized model for optimal performance.
+**A:** LoRA adapters lowered video summarization scores in this study, so the GUI uses the base quantized model.
 
 **Q:** Can I use this for non-educational videos?  
 **A:** Yes, but quality may vary. The model was optimized for technical/educational content.
@@ -350,7 +345,7 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 
 - **Advisors:** Dr. Neha Yadav (ABES Engineering College)
 - **Compute:** Google Colab (free T4 GPU access)
-- **APIs:** OpenAI GPT-4 (reference summary generation)
+- **APIs:** OpenAI `gpt-4o-mini` (reference summary generation)
 - **Open Source:** Hugging Face (transformers, PEFT), OpenAI (Whisper), Mistral AI (base model)
 
 ---
@@ -361,7 +356,7 @@ This project is licensed under the MIT License – see the [LICENSE](LICENSE) fi
 **Project Link:** [https://github.com/Tushar-9802/YouTube-Transcript-Summarizer](https://github.com/Tushar-9802/YouTube-Transcript-Summarizer)  
 ---
 
-_Last Updated: October 2025_  
+_Last Updated: November 2026_  
 _Status: Research Complete | GUI Functional_  
 
 

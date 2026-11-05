@@ -1,4 +1,5 @@
-# save as: generate_paper_figures.py
+# Regenerates the figures from evaluation/results/recomputed.json and the training logs.
+import json
 import matplotlib.pyplot as plt
 import matplotlib
 matplotlib.use('Agg')
@@ -14,7 +15,9 @@ plt.rcParams['figure.dpi'] = 300
 sns.set_palette("husl")
 
 # Create output directory
-output_dir = Path('paper/figures')
+ROOT = Path(__file__).resolve().parents[1]
+RES = json.load(open(ROOT / 'evaluation/results/recomputed.json', encoding='utf-8'))
+output_dir = ROOT / 'evaluation/results/figures'
 output_dir.mkdir(parents=True, exist_ok=True)
 
 # ============================================================================
@@ -23,29 +26,11 @@ output_dir.mkdir(parents=True, exist_ok=True)
 domains = ['Medical', 'Engineering', 'Scientific']
 metrics = ['ROUGE-1', 'ROUGE-2', 'ROUGE-L', 'BERTScore']
 
-base_data = {
-    'Medical': [0.341, 0.118, 0.294, 0.881],
-    'Engineering': [0.347, 0.120, 0.301, 0.879],
-    'Scientific': [0.336, 0.115, 0.290, 0.877]
-}
-
-lora_data = {
-    'Medical': [0.283, 0.066, 0.263, 0.851],
-    'Engineering': [0.272, 0.060, 0.254, 0.845],
-    'Scientific': [0.288, 0.073, 0.265, 0.845]
-}
-
-base_std = {
-    'Medical': [0.089, 0.056, 0.081, 0.023],
-    'Engineering': [0.093, 0.061, 0.085, 0.026],
-    'Scientific': [0.086, 0.054, 0.078, 0.025]
-}
-
-lora_std = {
-    'Medical': [0.094, 0.045, 0.084, 0.028],
-    'Engineering': [0.091, 0.038, 0.079, 0.031],
-    'Scientific': [0.089, 0.042, 0.081, 0.029]
-}
+names = ['R-1', 'R-2', 'R-L', 'BERT']
+def column(key):
+    return {d: [RES['table1'][f'{d.lower()}/{m}'][key] for m in names] for d in domains}
+base_data, lora_data = column('base'), column('lora')
+base_std, lora_std = column('sd_base'), column('sd_lora')
 
 fig, axes = plt.subplots(1, 3, figsize=(10, 3.5))
 
@@ -84,7 +69,7 @@ labels = {'medical': 'Medical', 'engineering': 'Engineering', 'scientific': 'Sci
 
 for domain in ['medical', 'engineering', 'scientific']:
     try:
-        csv_path = Path(f'models/adapters/{domain}/training_log.csv')
+        csv_path = ROOT / f'evaluation/models/adapters/{domain}/training_log.csv'
         df = pd.read_csv(csv_path)
         
         # Plot loss vs epoch
@@ -111,11 +96,10 @@ print("✓ Generated: training_loss.png")
 # ============================================================================
 # FIGURE 3: Error Distribution
 # ============================================================================
-categories = ['Academic\nFraming', 'Citation\nArtifacts', 'Style\nMismatch', 
-              'Too Short', 'Too Verbose']
-
-lora_freq = [14.6, 2.1, 54.0, 18.0, 13.0]
-base_freq = [4.2, 0.0, 20.0, 12.0, 8.0]
+categories = ['Academic\nFraming', 'Citation\nArtifacts', 'Repetitive\nOutput']
+c = RES['counts']
+lora_freq = [100 * c['framing_lora'] / 48, 100 * c['citation_lora'] / 48, 100 * c['repetitive_lora'] / 48]
+base_freq = [100 * c['framing_base'] / 48, 0.0, 100 * c['repetitive_base'] / 48]
 
 fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(10, 3.5))
 
@@ -194,5 +178,5 @@ plt.close()
 print("✓ Generated: system_architecture.png")
 
 print("\n" + "="*60)
-print("All figures saved to: paper/figures/")
+print(f"All figures saved to: {output_dir}")
 print("="*60)

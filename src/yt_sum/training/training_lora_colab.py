@@ -128,7 +128,7 @@ training_args = TrainingArguments(
     logging_steps=10,
     save_strategy="epoch",
     optim="paged_adamw_8bit",  # 8-bit optimizer (saves memory)
-    warmup_steps=10,
+    warmup_steps=10,  # the logged runs show no warmup, so they used a slightly different version of this script
     report_to="none",  # Disable wandb
 )
 

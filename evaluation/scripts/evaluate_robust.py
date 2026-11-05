@@ -179,18 +179,19 @@ class SafeEvaluator:
         
         device = 'cuda' if torch.cuda.is_available() else 'cpu'
         P, R, F1 = bert_score(base_summaries, references, lang="en", device=device, verbose=False, batch_size=4)
-        base_bert = F1.mean().item()
+        base_bert = F1.tolist()
         
         aggressive_cleanup()
         
         P, R, F1 = bert_score(lora_summaries, references, lang="en", device=device, verbose=False, batch_size=4)
-        lora_bert = F1.mean().item()
+        lora_bert = F1.tolist()
         
         aggressive_cleanup()
         
         # Add BERTScore to results
+        scores = {'base': iter(base_bert), 'lora': iter(lora_bert)}
         for res in results:
-            res['bertscore_f'] = base_bert if res['model_type'] == 'base' else lora_bert
+            res['bertscore_f'] = next(scores[res['model_type']])
         
         return pd.DataFrame(results)
     

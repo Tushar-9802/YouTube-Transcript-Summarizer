@@ -1,5 +1,5 @@
 """
-Test adapters on their actual training domain (papers)
+Smoke test on 3 papers per domain: checks that adapters change outputs. It computes no ROUGE and is not a validation study.
 """
 import json
 import torch

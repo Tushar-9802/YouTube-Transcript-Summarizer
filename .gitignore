@@ -152,3 +152,5 @@ data/ms2_raw/
 .streamlit/
 *.bak
 *.tmp
+yt_summariser_venv/
+run_data/
